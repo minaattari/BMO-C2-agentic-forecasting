@@ -16,7 +16,12 @@ from aieng.forecasting.methods.agentic import (
 from aieng.forecasting.methods.agentic.agent_factory import AgentConfig
 from aieng.forecasting.models import LITE_MODEL
 from manufacturing_stress_forecasting.data import IPMAN_SERIES_ID
-from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS, build_feature_snapshot
+from manufacturing_stress_forecasting.features import (
+    FEATURE_SERIES_IDS,
+    IPMAN_FEATURE_SERIES_IDS,
+    MACRO_FEATURE_SERIES_IDS,
+    build_feature_snapshot,
+)
 from manufacturing_stress_forecasting.targets import (
     DEFAULT_LOOKBACK_MONTHS,
     DEFAULT_STRESS_THRESHOLD_PCT,
@@ -32,12 +37,13 @@ def _build_instruction() -> str:
         "binary IPMAN stress event in the supplied task resolves to 1 at the specified forecast date.\n\n"
         "## Rules\n\n"
         "1. Use only the JSON payload. Do not use remembered events or facts after `as_of`.\n"
-        "2. Start from the supplied historical base rate, then adjust using the current IPMAN momentum signals.\n"
-        "3. Treat more-negative short- and medium-horizon IPMAN changes as evidence for stress, but do not "
-        "turn a weak signal into certainty.\n"
-        "4. `probability` means P(stress=1), not confidence in your explanation.\n"
-        "5. Give a concise rationale, identify both supporting and countervailing evidence, and remain calibrated.\n"
-        "6. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
+        "2. Start from the supplied historical base rate, then adjust using the five supplied signals.\n"
+        "3. Treat negative IPMAN momentum, a restrictive fed funds rate, and an inverted 10Y-2Y spread "
+        "as possible evidence for stress; explain how the signals interact.\n"
+        "4. Do not double-count correlated signals or turn a weak signal into certainty.\n"
+        "5. `probability` means P(stress=1), not confidence in your explanation.\n"
+        "6. Give a concise rationale, identify both supporting and countervailing evidence, and remain calibrated.\n"
+        "7. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
         "away from stress, and `neutral` when mixed.\n\n"
         "## Output\n\n"
         "Return exactly one JSON object matching this structure, with no markdown fence or preamble:\n\n" + schema
@@ -64,6 +70,16 @@ class ManufacturingStressPromptBuilder(BaseModel):
         target = context.get_series(task.target_series_id).sort_values("timestamp")
         feature_frames = {series_id: context.get_series(series_id) for series_id in FEATURE_SERIES_IDS}
         current_signals = build_feature_snapshot(as_of, feature_frames)
+        current_ipman_signals = (
+            {series_id: current_signals[series_id] for series_id in IPMAN_FEATURE_SERIES_IDS}
+            if current_signals is not None
+            else None
+        )
+        current_macro_signals = (
+            {series_id: current_signals[series_id] for series_id in MACRO_FEATURE_SERIES_IDS}
+            if current_signals is not None
+            else None
+        )
 
         target_values = target["value"].astype(float)
         trailing_values = target_values.tail(self.trailing_base_rate_months)
@@ -97,7 +113,8 @@ class ManufacturingStressPromptBuilder(BaseModel):
                 "threshold_pct": DEFAULT_STRESS_THRESHOLD_PCT,
                 "rule": ("stress=1 when trailing IPMAN percentage change is less than or equal to threshold_pct"),
             },
-            "current_ipman_signals_pct": current_signals,
+            "current_ipman_signals_pct": current_ipman_signals,
+            "current_macro_signals": current_macro_signals,
             "historical_stress": {
                 "n_visible_months": len(target_values),
                 "all_history_base_rate": float(target_values.mean()) if len(target_values) else None,

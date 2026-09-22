@@ -5,9 +5,10 @@ This implementation asks one Track 1 question:
 > Given information available at a monthly forecast origin, what is the
 > probability that U.S. manufacturing will be under stress three months later?
 
-The first version intentionally uses only FRED's `IPMAN` series. It excludes
-Yahoo Finance, macro covariates, news, LLMs, and agents until the target and
-backtest are easy to inspect.
+The model deliberately uses only five explanatory variables: trailing
+1-, 3-, and 6-month IPMAN changes, the effective federal funds rate, and the
+10-year minus 2-year Treasury yield spread. The small panel keeps the first
+multivariate experiment interpretable.
 
 ## Target
 
@@ -23,17 +24,20 @@ That distinction makes this forecasting rather than current-state detection.
 
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
-  trailing 1-, 3-, 6-, and 12-month IPMAN percentage changes.
+  the five IPMAN/rate variables.
+- `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
+  five cutoff-safe signals plus recent IPMAN history and historical base rates.
 
-Both return `BinaryForecast` probabilities and are scored with Brier score.
+All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
 ## Data and cutoff assumptions
 
-`FREDAdapter` caches `IPMAN` at `data/fred/IPMAN.parquet`. Because the standard
-FRED response does not provide point-in-time release vintages, this prototype
-conservatively shifts `released_at` one month beyond each reference timestamp.
-The limitation remains: historical FRED observations may contain later
-revisions. A production-quality study should use ALFRED vintages.
+`FREDAdapter` caches `IPMAN`, `DFF`, `DGS10`, and `DGS2` under `data/fred/`.
+IPMAN is conservatively treated as available one month after its reference
+month. Daily rate observations are treated as available on the next business
+day and collapsed to their final monthly observation. The standard FRED API
+does not provide full point-in-time vintages, so historical observations may
+still contain later revisions; a production study should use ALFRED vintages.
 
 ## Run
 
@@ -59,9 +63,14 @@ The output prints one mean Brier score per predictor; lower is better. The
 logistic model should be compared against historical frequency, not judged in
 isolation.
 
+Run one current forecast, including the structured agent:
+
+```bash
+uv run --directory implementations python -m manufacturing_stress_forecasting.run_agent_prediction
+```
+
 ## Next steps
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
-2. Add a full monthly development backtest after the smoke run is stable.
-3. Add a small FRED macro panel.
-4. Add an agent only after the deterministic Track 1 experiment is credible.
+2. Compare the five-variable logistic score with the earlier IPMAN-only result.
+3. Backtest the agent only after the deterministic model is stable.

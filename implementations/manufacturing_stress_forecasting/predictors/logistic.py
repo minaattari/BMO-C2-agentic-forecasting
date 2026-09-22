@@ -1,4 +1,4 @@
-"""Fit-at-origin logistic baseline for three-month-ahead manufacturing stress."""
+"""Five-variable logistic baseline for three-month-ahead manufacturing stress."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS, build_
 
 
 class ManufacturingStressLogisticPredictor(Predictor):
-    """Forecast manufacturing stress from four trailing IPMAN changes.
+    """Forecast manufacturing stress from three IPMAN and two rate signals.
 
     The model is rebuilt at every backtest origin. For each resolved historical
     outcome at month ``r``, its feature vector is reconstructed at ``r - lead``
@@ -29,7 +29,7 @@ class ManufacturingStressLogisticPredictor(Predictor):
     @property
     def predictor_id(self) -> str:
         """Return the stable artifact identifier."""
-        return "manufacturing_stress_logistic_ipman"
+        return "manufacturing_stress_logistic_ipman_rates"
 
     def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
         """Fit on visible history and return one binary stress probability."""

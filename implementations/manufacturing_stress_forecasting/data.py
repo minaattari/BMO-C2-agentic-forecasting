@@ -1,4 +1,4 @@
-"""FRED/IPMAN data service for the manufacturing-stress MVP."""
+"""FRED data service for the five-variable manufacturing-stress MVP."""
 
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ from aieng.forecasting.data.adapters import FREDAdapter
 from aieng.forecasting.data.features import StaticFrameAdapter
 from manufacturing_stress_forecasting.features import (
     FEATURE_PERIODS,
+    FED_FUNDS_SERIES_ID,
+    YIELD_CURVE_SERIES_ID,
     apply_conservative_monthly_release_lag,
     build_ipman_feature_frames,
+    build_macro_feature_frames,
 )
 from manufacturing_stress_forecasting.targets import (
     DEFAULT_LOOKBACK_MONTHS,
@@ -20,6 +23,10 @@ from manufacturing_stress_forecasting.targets import (
 
 
 IPMAN_FRED_ID = "IPMAN"
+FED_FUNDS_FRED_ID = "DFF"
+TREASURY_10Y_FRED_ID = "DGS10"
+TREASURY_2Y_FRED_ID = "DGS2"
+
 IPMAN_SERIES_ID = "ipman_us_manufacturing_production"
 STRESS_SERIES_ID = "manufacturing_stress"
 
@@ -35,10 +42,19 @@ def build_manufacturing_stress_service(
     stress_lookback_months: int = DEFAULT_LOOKBACK_MONTHS,
     stress_threshold_pct: float = DEFAULT_STRESS_THRESHOLD_PCT,
 ) -> DataService:
-    """Build a service containing IPMAN, momentum features, and stress labels."""
+    """Build a service containing the target and five cutoff-aware input features."""
     raw_ipman = FREDAdapter(IPMAN_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
+    raw_fed_funds = FREDAdapter(FED_FUNDS_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
+    raw_treasury_10y = FREDAdapter(TREASURY_10Y_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
+    raw_treasury_2y = FREDAdapter(TREASURY_2Y_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
+
     ipman = apply_conservative_monthly_release_lag(raw_ipman, months=release_lag_months)
-    feature_frames = build_ipman_feature_frames(ipman)
+    ipman_feature_frames = build_ipman_feature_frames(ipman)
+    macro_feature_frames = build_macro_feature_frames(
+        raw_fed_funds,
+        raw_treasury_10y,
+        raw_treasury_2y,
+    )
     stress = derive_manufacturing_stress_labels(
         ipman,
         lookback_months=stress_lookback_months,
@@ -58,7 +74,7 @@ def build_manufacturing_stress_service(
         ),
     )
 
-    for series_id, frame in feature_frames.items():
+    for series_id, frame in ipman_feature_frames.items():
         periods = FEATURE_PERIODS[series_id]
         service.register(
             series_id,
@@ -71,6 +87,29 @@ def build_manufacturing_stress_service(
                 frequency="MS",
             ),
         )
+
+    service.register(
+        FED_FUNDS_SERIES_ID,
+        StaticFrameAdapter(macro_feature_frames[FED_FUNDS_SERIES_ID]),
+        SeriesMetadata(
+            series_id=FED_FUNDS_SERIES_ID,
+            description="Month-end effective federal funds rate",
+            source="FRED (DFF), derived monthly",
+            units="Percent",
+            frequency="MS",
+        ),
+    )
+    service.register(
+        YIELD_CURVE_SERIES_ID,
+        StaticFrameAdapter(macro_feature_frames[YIELD_CURVE_SERIES_ID]),
+        SeriesMetadata(
+            series_id=YIELD_CURVE_SERIES_ID,
+            description="Month-end 10-year minus 2-year Treasury yield spread",
+            source="FRED (DGS10 minus DGS2), derived monthly",
+            units="Percentage points",
+            frequency="MS",
+        ),
+    )
 
     service.register(
         STRESS_SERIES_ID,
@@ -91,8 +130,11 @@ def build_manufacturing_stress_service(
 
 __all__ = [
     "DEFAULT_FRED_CACHE_DIR",
+    "FED_FUNDS_FRED_ID",
     "IPMAN_FRED_ID",
     "IPMAN_SERIES_ID",
     "STRESS_SERIES_ID",
+    "TREASURY_10Y_FRED_ID",
+    "TREASURY_2Y_FRED_ID",
     "build_manufacturing_stress_service",
 ]

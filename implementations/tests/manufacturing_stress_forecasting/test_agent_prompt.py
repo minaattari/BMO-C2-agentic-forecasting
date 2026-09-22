@@ -68,4 +68,7 @@ def test_prompt_uses_only_cutoff_visible_evidence() -> None:
     assert payload["as_of"] == "2020-06-01"
     assert payload["forecast_date"] == "2020-09-01"
     assert payload["recent_ipman"][-1]["value"] == 105.0
+    assert len(payload["current_ipman_signals_pct"]) == 3
+    assert len(payload["current_macro_signals"]) == 2
     assert 999.0 not in payload["current_ipman_signals_pct"].values()
+    assert 999.0 not in payload["current_macro_signals"].values()
