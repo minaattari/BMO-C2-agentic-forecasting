@@ -22,16 +22,16 @@ That distinction makes this forecasting rather than current-state detection.
 
 ## Predictors
 
-- `HistoricalFrequencyPredictor`: the visible historical stress rate.
-- `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
   the five IPMAN/rate variables.
-- `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
+  `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
+  tree classifier using the same five variables and cutoff-safe training rows.
   five cutoff-safe signals plus recent IPMAN history and historical base rates.
 
 All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
 ## Data and cutoff assumptions
-
+Compare XGBoost with logistic regression and historical frequency rather than judging it
+in isolation, because this small monthly dataset can overfit flexible models.
 `FREDAdapter` caches `IPMAN`, `DFF`, `DGS10`, and `DGS2` under `data/fred/`.
 IPMAN is conservatively treated as available one month after its reference
 month. Daily rate observations are treated as available on the next business
