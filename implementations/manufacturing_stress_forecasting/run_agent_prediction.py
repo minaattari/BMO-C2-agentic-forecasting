@@ -14,7 +14,10 @@ from manufacturing_stress_forecasting.data import (
     IPMAN_SERIES_ID,
     build_manufacturing_stress_service,
 )
-from manufacturing_stress_forecasting.predictors import ManufacturingStressLogisticPredictor
+from manufacturing_stress_forecasting.predictors import (
+    ManufacturingStressLogisticPredictor,
+    ManufacturingStressXGBoostPredictor,
+)
 
 
 SPEC_PATH = Path(__file__).resolve().parent / "specs" / "manufacturing_stress_smoke.yaml"
@@ -33,6 +36,7 @@ def main() -> None:
     predictors = [
         HistoricalFrequencyPredictor(),
         ManufacturingStressLogisticPredictor(),
+        ManufacturingStressXGBoostPredictor(),
         build_manufacturing_stress_agent_predictor(),
     ]
     print(f"Forecast origin: {as_of.date()}")
