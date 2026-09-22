@@ -12,6 +12,7 @@ from aieng.forecasting.langfuse_tracing import (
     _langfuse_credentials_present,
     _LangfuseTracingBootstrap,
     init_langfuse_tracing,
+    langfuse_generation,
 )
 
 
@@ -84,13 +85,6 @@ class TestBootstrapMissingDeps:
             bootstrap._ensure_langfuse_client()
         assert bootstrap._langfuse_client_initialized is False
 
-    def test_missing_litellm_package_does_not_raise(self) -> None:
-        """Absent ``litellm`` skips callback registration without raising."""
-        with patch.dict(sys.modules, {"litellm": None}):
-            bootstrap = _LangfuseTracingBootstrap()
-            bootstrap._register_litellm_langfuse_otel()
-        assert bootstrap._litellm_instrumented is False
-
     def test_missing_openinference_package_does_not_raise(self) -> None:
         """Missing OpenInference ADK shim skips instrumentation silently."""
         with patch.dict(
@@ -130,25 +124,23 @@ class TestBootstrapMissingDeps:
 
 
 class TestBootstrapLiteLLMCallbackContract:
-    """LiteLLM global ``callbacks`` list is updated idempotently."""
+    """LiteLLM's ``langfuse_otel`` callback must never be registered."""
 
-    def test_langfuse_otel_not_appended_when_already_present(self) -> None:
-        """Existing langfuse_otel entry must not be duplicated."""
-        litellm_mod = MagicMock()
-        litellm_mod.callbacks = ["langfuse_otel", "other_hook"]
-        with patch.dict(sys.modules, {"litellm": litellm_mod}):
-            bootstrap = _LangfuseTracingBootstrap()
-            bootstrap._register_litellm_langfuse_otel()
-        assert litellm_mod.callbacks.count("langfuse_otel") == 1
+    def test_langfuse_otel_is_not_registered(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Init must not add ``langfuse_otel`` to ``litellm.callbacks``.
 
-    def test_existing_callbacks_are_preserved(self) -> None:
-        """Appending ``langfuse_otel`` keeps prior callback entries."""
-        litellm_mod = MagicMock()
-        litellm_mod.callbacks = ["other_hook"]
-        with patch.dict(sys.modules, {"litellm": litellm_mod}):
+        The callback is unusable against the Langfuse v4 SDK and stamps a zero
+        ``llm.cost.total`` on the active span, which suppresses Langfuse's own
+        cost calculation and forced agent-path generations to $0.
+        """
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+        deps = _all_deps_present(litellm_callbacks=["other_hook"])
+        with patch.dict(sys.modules, deps):
             bootstrap = _LangfuseTracingBootstrap()
-            bootstrap._register_litellm_langfuse_otel()
-        assert "other_hook" in litellm_mod.callbacks
+            bootstrap.init()
+        assert "langfuse_otel" not in deps["litellm"].callbacks
+        assert deps["litellm"].callbacks == ["other_hook"], "unrelated callbacks must be left alone"
 
 
 # ---------------------------------------------------------------------------
@@ -168,11 +160,10 @@ class TestBootstrapInit:
             bootstrap = _LangfuseTracingBootstrap()
             bootstrap.init()
         assert not bootstrap._langfuse_client_initialized
-        assert not bootstrap._litellm_instrumented
         assert not bootstrap._google_adk_instrumented
 
-    def test_repeated_init_does_not_duplicate_litellm_callback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Calling ``init`` twice adds ``langfuse_otel`` at most once."""
+    def test_repeated_init_instruments_adk_only_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Calling ``init`` twice instruments Google ADK at most once."""
         monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
         monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
         deps = _all_deps_present()
@@ -180,7 +171,8 @@ class TestBootstrapInit:
             bootstrap = _LangfuseTracingBootstrap()
             bootstrap.init()
             bootstrap.init()
-        assert deps["litellm"].callbacks.count("langfuse_otel") == 1
+        instrumentor = deps["openinference.instrumentation.google_adk"].GoogleADKInstrumentor
+        assert instrumentor.return_value.instrument.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -198,3 +190,59 @@ def test_init_langfuse_tracing_is_a_no_op_without_credentials(
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
     init_langfuse_tracing()
     assert not fresh._langfuse_client_initialized
+
+
+# ---------------------------------------------------------------------------
+# langfuse_generation — nested generations for inner LiteLLM calls
+# ---------------------------------------------------------------------------
+
+
+class TestLangfuseGeneration:
+    """``langfuse_generation`` no-ops without credentials and nests when present."""
+
+    def test_no_op_without_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Missing keys yield an object that accepts ``update`` without raising."""
+        monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+        monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+        with langfuse_generation(name="search_web.leakage_verifier") as generation:
+            generation.update(output="ok")
+
+    def test_opens_generation_when_credentials_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Credentials plus SDK open a nested generation observation."""
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+        mock_client = MagicMock()
+        mock_generation = MagicMock()
+        mock_client.start_as_current_observation.return_value.__enter__.return_value = mock_generation
+        mock_client.start_as_current_observation.return_value.__exit__.return_value = False
+        langfuse_mod = MagicMock()
+        langfuse_mod.get_client.return_value = mock_client
+        with (
+            patch.dict(sys.modules, {"langfuse": langfuse_mod}),
+            langfuse_generation(
+                name="search_web.leakage_verifier",
+                model="gemini-3.5-flash",
+                input={"query": "WTI"},
+                metadata={"attempt": 1},
+            ) as generation,
+        ):
+            assert generation is mock_generation
+        mock_client.start_as_current_observation.assert_called_once()
+        kwargs = mock_client.start_as_current_observation.call_args.kwargs
+        assert kwargs["name"] == "search_web.leakage_verifier"
+        assert kwargs["as_type"] == "generation"
+        assert kwargs["model"] == "gemini-3.5-flash"
+        assert kwargs["input"] == {"query": "WTI"}
+        assert kwargs["metadata"] == {"attempt": 1}
+
+    def test_sdk_failure_is_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A raising SDK must not break the wrapped LiteLLM call."""
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-test")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-test")
+        langfuse_mod = MagicMock()
+        langfuse_mod.get_client.side_effect = RuntimeError("connection refused")
+        with (
+            patch.dict(sys.modules, {"langfuse": langfuse_mod}),
+            langfuse_generation(name="search_web.google_search") as generation,
+        ):
+            generation.update(output="still works")

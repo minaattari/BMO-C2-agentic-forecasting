@@ -103,7 +103,7 @@ This has a concrete implication for this evaluation:
   fetch data via yfinance and reason from what it computed — not from memorized
   facts about 2025 WTI prices.
 
-- The **evaluation period** (Feb–Mar 2026) is definitively post-cutoff.
+- The **evaluation period** (Feb–Jun 2026) is definitively post-cutoff.
   During eval, the agent must rely entirely on:
   1. Live Google Search (with `cutoff_date` enforcement per origin)
   2. Code execution (for statistical analysis of fetched data)
@@ -470,4 +470,4 @@ WTI_STRATEGY_DIR=adaptive_agent/skills/wti-strategy-trained \\
     uv run adk web adaptive_agent/
 ```
 
-Open `http://localhost:8000`. See Notebook 5 for suggested conversation starters.
+Open `http://localhost:8000`. See Notebook 5 for suggested conversation starters. On a **Coder workspace** that URL is inside the VM — [guide 5](../../guides/05-access-adk-web-via-ssh-tunnel.md) tunnels it to your laptop.
