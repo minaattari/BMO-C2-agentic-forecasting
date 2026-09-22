@@ -1,0 +1,146 @@
+"""Quantitative-only ADK agent for binary manufacturing-stress forecasts."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pandas as pd
+from aieng.forecasting.data.context import ForecastContext
+from aieng.forecasting.evaluation.task import ForecastingTask
+from aieng.forecasting.methods.agentic import (
+    AgentPredictor,
+    DiscreteAgentForecastOutput,
+    build_adk_agent,
+)
+from aieng.forecasting.methods.agentic.agent_factory import AgentConfig
+from aieng.forecasting.models import LITE_MODEL
+from manufacturing_stress_forecasting.data import IPMAN_SERIES_ID
+from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS, build_feature_snapshot
+from manufacturing_stress_forecasting.targets import (
+    DEFAULT_LOOKBACK_MONTHS,
+    DEFAULT_STRESS_THRESHOLD_PCT,
+)
+from pydantic import BaseModel, Field
+
+
+def _build_instruction() -> str:
+    schema = DiscreteAgentForecastOutput.prompt_schema_json()
+    return (
+        "## Role\n\n"
+        "You are a cautious U.S. manufacturing-cycle analyst. Estimate the probability that the "
+        "binary IPMAN stress event in the supplied task resolves to 1 at the specified forecast date.\n\n"
+        "## Rules\n\n"
+        "1. Use only the JSON payload. Do not use remembered events or facts after `as_of`.\n"
+        "2. Start from the supplied historical base rate, then adjust using the current IPMAN momentum signals.\n"
+        "3. Treat more-negative short- and medium-horizon IPMAN changes as evidence for stress, but do not "
+        "turn a weak signal into certainty.\n"
+        "4. `probability` means P(stress=1), not confidence in your explanation.\n"
+        "5. Give a concise rationale, identify both supporting and countervailing evidence, and remain calibrated.\n"
+        "6. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
+        "away from stress, and `neutral` when mixed.\n\n"
+        "## Output\n\n"
+        "Return exactly one JSON object matching this structure, with no markdown fence or preamble:\n\n" + schema
+    )
+
+
+class ManufacturingStressPromptBuilder(BaseModel):
+    """Serialize cutoff-safe IPMAN evidence into the agent's prompt."""
+
+    model_config = {"extra": "forbid"}
+
+    recent_history_months: int = Field(default=24, ge=6, le=120)
+    trailing_base_rate_months: int = Field(default=60, ge=12, le=240)
+
+    def __call__(self, *, task: ForecastingTask, context: ForecastContext) -> str:
+        """Build one structured, cutoff-safe forecast payload."""
+        if task.payload_type != "binary" or len(task.horizons) != 1:
+            raise ValueError("ManufacturingStressPromptBuilder requires one binary forecast horizon.")
+
+        as_of = pd.Timestamp(context.as_of)
+        offset = pd.tseries.frequencies.to_offset(task.frequency)
+        forecast_date = as_of + offset * task.horizons[0]
+        ipman = context.get_series(IPMAN_SERIES_ID).sort_values("timestamp")
+        target = context.get_series(task.target_series_id).sort_values("timestamp")
+        feature_frames = {series_id: context.get_series(series_id) for series_id in FEATURE_SERIES_IDS}
+        current_signals = build_feature_snapshot(as_of, feature_frames)
+
+        target_values = target["value"].astype(float)
+        trailing_values = target_values.tail(self.trailing_base_rate_months)
+        recent_ipman = [
+            {
+                "reference_month": str(pd.Timestamp(timestamp).date()),
+                "value": float(value),
+                "released_at": str(pd.Timestamp(released_at).date()),
+            }
+            for timestamp, value, released_at in zip(
+                ipman["timestamp"].tail(self.recent_history_months),
+                ipman["value"].tail(self.recent_history_months),
+                ipman["released_at"].tail(self.recent_history_months),
+                strict=True,
+            )
+        ]
+
+        payload: dict[str, Any] = {
+            "task": {
+                "task_id": task.task_id,
+                "question": task.description,
+                "horizon_months": task.horizons[0],
+            },
+            "as_of": str(as_of.date()),
+            "forecast_date": str(forecast_date.date()),
+            "target_definition": {
+                "event": "manufacturing stress",
+                "stress_value": 1,
+                "no_stress_value": 0,
+                "lookback_months": DEFAULT_LOOKBACK_MONTHS,
+                "threshold_pct": DEFAULT_STRESS_THRESHOLD_PCT,
+                "rule": ("stress=1 when trailing IPMAN percentage change is less than or equal to threshold_pct"),
+            },
+            "current_ipman_signals_pct": current_signals,
+            "historical_stress": {
+                "n_visible_months": len(target_values),
+                "all_history_base_rate": float(target_values.mean()) if len(target_values) else None,
+                "trailing_window_months": self.trailing_base_rate_months,
+                "trailing_base_rate": float(trailing_values.mean()) if len(trailing_values) else None,
+            },
+            "recent_ipman": recent_ipman,
+        }
+        return json.dumps(payload, indent=2)
+
+
+def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentConfig:
+    """Build the tool-free manufacturing analyst configuration."""
+    return AgentConfig(
+        name="manufacturing_stress_analyst",
+        model=model,
+        instruction=_build_instruction(),
+        temperature=0.1,
+        seed=42,
+        max_output_tokens=2_048,
+    )
+
+
+def build_manufacturing_stress_agent_predictor(
+    config: AgentConfig | None = None,
+) -> AgentPredictor:
+    """Wrap the analyst in the standard binary AgentPredictor contract."""
+    return AgentPredictor(
+        agent_config=config or build_manufacturing_stress_agent_config(),
+        prompt_builder=ManufacturingStressPromptBuilder(),
+        output_schema=DiscreteAgentForecastOutput,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """Expose a schema-free root agent for ``adk run`` and ``adk web``."""
+    if name == "root_agent":
+        return build_adk_agent(build_manufacturing_stress_agent_config())
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "ManufacturingStressPromptBuilder",
+    "build_manufacturing_stress_agent_config",
+    "build_manufacturing_stress_agent_predictor",
+]
