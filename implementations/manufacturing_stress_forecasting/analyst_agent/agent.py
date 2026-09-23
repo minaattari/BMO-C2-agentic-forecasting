@@ -34,15 +34,16 @@ def _build_instruction() -> str:
     return (
         "## Role\n\n"
         "You are a cautious U.S. manufacturing-cycle analyst. Estimate the probability that the "
-        "binary IPMAN stress event in the supplied task resolves to 1 at the specified forecast date.\n\n"
+        "binary IPMAN stress event in the supplied task resolves to 1 at the specified forecast horizon.\n\n"
         "## Rules\n\n"
-        "1. Use only the JSON payload. Do not use remembered events or facts after `as_of`.\n"
+        "1. Use only the JSON payload. Do not use remembered events or facts after the forecast origin.\n"
+        "   Historical backtests may anonymize calendar dates; do not try to infer the hidden dates.\n"
         "2. Start from the supplied historical base rate, then adjust using the five supplied signals.\n"
         "3. Treat negative IPMAN momentum, a restrictive fed funds rate, and an inverted 10Y-2Y spread "
         "as possible evidence for stress; explain how the signals interact.\n"
         "4. Do not double-count correlated signals or turn a weak signal into certainty.\n"
         "5. `probability` means P(stress=1), not confidence in your explanation.\n"
-        "6. Give a concise rationale, identify both supporting and countervailing evidence, and remain calibrated.\n"
+        "6. Give a rationale of at most 40 words, identify supporting and countervailing evidence, and remain calibrated.\n"
         "7. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
         "away from stress, and `neutral` when mixed.\n\n"
         "## Output\n\n"
@@ -55,8 +56,9 @@ class ManufacturingStressPromptBuilder(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    recent_history_months: int = Field(default=24, ge=6, le=120)
+    recent_history_months: int = Field(default=12, ge=6, le=120)
     trailing_base_rate_months: int = Field(default=60, ge=12, le=240)
+    anonymize_dates: bool = False
 
     def __call__(self, *, task: ForecastingTask, context: ForecastContext) -> str:
         """Build one structured, cutoff-safe forecast payload."""
@@ -83,19 +85,32 @@ class ManufacturingStressPromptBuilder(BaseModel):
 
         target_values = target["value"].astype(float)
         trailing_values = target_values.tail(self.trailing_base_rate_months)
-        recent_ipman = [
-            {
-                "reference_month": str(pd.Timestamp(timestamp).date()),
-                "value": float(value),
-                "released_at": str(pd.Timestamp(released_at).date()),
-            }
-            for timestamp, value, released_at in zip(
+        recent_rows = list(
+            zip(
                 ipman["timestamp"].tail(self.recent_history_months),
                 ipman["value"].tail(self.recent_history_months),
                 ipman["released_at"].tail(self.recent_history_months),
                 strict=True,
             )
-        ]
+        )
+        if self.anonymize_dates:
+            origin_month = as_of.to_period("M").ordinal
+            recent_ipman = [
+                {
+                    "months_before_origin": origin_month - pd.Timestamp(timestamp).to_period("M").ordinal,
+                    "value": float(value),
+                }
+                for timestamp, value, _released_at in recent_rows
+            ]
+        else:
+            recent_ipman = [
+                {
+                    "reference_month": str(pd.Timestamp(timestamp).date()),
+                    "value": float(value),
+                    "released_at": str(pd.Timestamp(released_at).date()),
+                }
+                for timestamp, value, released_at in recent_rows
+            ]
 
         payload: dict[str, Any] = {
             "task": {
@@ -103,8 +118,6 @@ class ManufacturingStressPromptBuilder(BaseModel):
                 "question": task.description,
                 "horizon_months": task.horizons[0],
             },
-            "as_of": str(as_of.date()),
-            "forecast_date": str(forecast_date.date()),
             "target_definition": {
                 "event": "manufacturing stress",
                 "stress_value": 1,
@@ -123,7 +136,12 @@ class ManufacturingStressPromptBuilder(BaseModel):
             },
             "recent_ipman": recent_ipman,
         }
-        return json.dumps(payload, indent=2)
+        if self.anonymize_dates:
+            payload["timing"] = {"calendar_dates_anonymized": True}
+        else:
+            payload["as_of"] = str(as_of.date())
+            payload["forecast_date"] = str(forecast_date.date())
+        return json.dumps(payload, separators=(",", ":"))
 
 
 def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentConfig:
@@ -134,17 +152,19 @@ def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentCon
         instruction=_build_instruction(),
         temperature=0.1,
         seed=42,
-        max_output_tokens=2_048,
+        max_output_tokens=384,
     )
 
 
 def build_manufacturing_stress_agent_predictor(
     config: AgentConfig | None = None,
+    *,
+    anonymize_dates: bool = False,
 ) -> AgentPredictor:
     """Wrap the analyst in the standard binary AgentPredictor contract."""
     return AgentPredictor(
         agent_config=config or build_manufacturing_stress_agent_config(),
-        prompt_builder=ManufacturingStressPromptBuilder(),
+        prompt_builder=ManufacturingStressPromptBuilder(anonymize_dates=anonymize_dates),
         output_schema=DiscreteAgentForecastOutput,
     )
 
