@@ -26,7 +26,7 @@ MACRO_FEATURE_SERIES_IDS: tuple[str, ...] = (
     YIELD_CURVE_SERIES_ID,
 )
 FEATURE_SERIES_IDS: tuple[str, ...] = IPMAN_FEATURE_SERIES_IDS + MACRO_FEATURE_SERIES_IDS
-STATISTICAL_FEATURE_SERIES_IDS: tuple[str, ...] = FEATURE_SERIES_IDS + (GSCPI_SERIES_ID,)
+STATISTICAL_FEATURE_SERIES_IDS: tuple[str, ...] = FEATURE_SERIES_IDS #+ (GSCPI_SERIES_ID,)
 
 
 def apply_conservative_monthly_release_lag(frame: pd.DataFrame, months: int = 1) -> pd.DataFrame:
