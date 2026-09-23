@@ -85,3 +85,52 @@ def test_agent_config_limits_output_tokens() -> None:
     assert config.max_output_tokens == 384
     assert config.temperature == 0.1
     assert config.seed == 42
+
+
+def test_backtest_prompt_anonymizes_calendar_dates() -> None:
+    service = DataService()
+    metadata = lambda series_id: SeriesMetadata(  # noqa: E731
+        series_id=series_id,
+        description=series_id,
+        source="test",
+        units="test",
+        frequency="MS",
+    )
+    service.register(
+        IPMAN_SERIES_ID,
+        StaticFrameAdapter(_frame([100, 101, 102, 103, 104, 105])),
+        metadata(IPMAN_SERIES_ID),
+    )
+    service.register(
+        STRESS_SERIES_ID,
+        StaticFrameAdapter(_frame([0, 0, 1, 0, 0, 0])),
+        metadata(STRESS_SERIES_ID),
+    )
+    for index, series_id in enumerate(FEATURE_SERIES_IDS):
+        service.register(
+            series_id,
+            StaticFrameAdapter(_frame([float(index)] * 6)),
+            metadata(series_id),
+        )
+
+    task = ForecastingTask(
+        task_id="manufacturing_stress_3m",
+        target_series_id=STRESS_SERIES_ID,
+        horizons=[3],
+        frequency="MS",
+        payload_type="binary",
+        description="Will manufacturing be stressed three months ahead?",
+    )
+    prompt = ManufacturingStressPromptBuilder(anonymize_dates=True)(
+        task=task,
+        context=service.context(datetime(2020, 6, 1)),
+    )
+    payload = json.loads(prompt)
+
+    assert "as_of" not in payload
+    assert "forecast_date" not in payload
+    assert payload["timing"] == {"calendar_dates_anonymized": True}
+    assert payload["recent_ipman"][-1] == {"months_before_origin": 0, "value": 105.0}
+    assert "reference_month" not in payload["recent_ipman"][-1]
+    assert "released_at" not in payload["recent_ipman"][-1]
+    assert "2020-" not in prompt

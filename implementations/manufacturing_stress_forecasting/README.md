@@ -25,7 +25,7 @@ That distinction makes this forecasting rather than current-state detection.
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
   the five IPMAN/rate variables.
-  `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
+- `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
   tree classifier using the same five variables and cutoff-safe training rows.
 - `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
   five cutoff-safe signals plus recent IPMAN history and historical base rates.
@@ -82,14 +82,20 @@ This evaluates historical frequency, logistic regression, XGBoost, and the
 `manufacturing_stress_analyst` agent through the same binary backtest and
 Brier-score calculation. The agent run uses the default lite model, a
 12-month IPMAN history, compact JSON prompts, a 384-token response cap, and
-one retry per failed origin. Complete results are cached under
-`data/predictions/manufacturing_stress_smoke_llmp_v1/`, so rerunning the
-command does not make new model calls. Use `--force-refresh` to intentionally
-re-run the predictors.
+one retry per failed origin. Calendar dates are replaced by relative month
+offsets in retrospective agent prompts to reduce historical-event recall.
 
-Compare scores only when the results have the same scored-origin count. The
-command prints both `scored` and `skipped` counts because failed agent origins
-are excluded from the mean Brier score.
+Complete results are cached under a specification-fingerprinted directory in
+`data/predictions/`, so changing the stride, horizon, dates, or warmup cannot
+silently reuse an incompatible result. Incomplete runs with skipped origins
+are not cached. Use `--force-refresh` to intentionally re-run every predictor.
+The command also verifies that every reported model was scored on the exact
+same origin and forecast-date pairs.
+
+This remains a retrospective LLM pseudo-backtest: anonymizing dates reduces,
+but cannot eliminate, the possibility that a modern model recognizes a
+historical episode from its training knowledge. Use prospectively recorded
+forecasts for a clean out-of-sample LLM evaluation.
 
 Run one current forecast, including the structured agent:
 
