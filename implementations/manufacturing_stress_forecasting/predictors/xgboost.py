@@ -1,10 +1,10 @@
-"""Five-variable XGBoost predictor for three-month-ahead manufacturing stress."""
+"""Six-variable XGBoost predictor for three-month-ahead manufacturing stress."""
 
 from __future__ import annotations
 
 import numpy as np
 from aieng.forecasting.evaluation.prediction import BinaryForecast
-from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS
+from manufacturing_stress_forecasting.features import STATISTICAL_FEATURE_SERIES_IDS
 from manufacturing_stress_forecasting.predictors.logistic import ManufacturingStressLogisticPredictor
 
 
@@ -27,7 +27,7 @@ class ManufacturingStressXGBoostPredictor(ManufacturingStressLogisticPredictor):
     @property
     def predictor_id(self) -> str:
         """Return the stable artifact identifier."""
-        return "manufacturing_stress_xgboost_ipman_rates"
+        return "manufacturing_stress_xgboost_ipman_rates_gscpi"
 
     def _fit_and_predict(
         self,
@@ -55,13 +55,19 @@ class ManufacturingStressXGBoostPredictor(ManufacturingStressLogisticPredictor):
             n_jobs=1,
         )
         model.fit(np.asarray(rows), np.asarray(outcomes))
-        current_row = np.asarray([[current[series_id] for series_id in FEATURE_SERIES_IDS]])
+        current_row = np.asarray([[current[series_id] for series_id in STATISTICAL_FEATURE_SERIES_IDS]])
         probability = float(model.predict_proba(current_row)[0, 1])
         return BinaryForecast(probability=probability), {
             "model": "xgboost_classifier",
-            "features": dict(zip(FEATURE_SERIES_IDS, (float(value) for value in current_row[0]), strict=True)),
+            "features": dict(
+                zip(STATISTICAL_FEATURE_SERIES_IDS, (float(value) for value in current_row[0]), strict=True)
+            ),
             "feature_importances": dict(
-                zip(FEATURE_SERIES_IDS, (float(value) for value in model.feature_importances_), strict=True)
+                zip(
+                    STATISTICAL_FEATURE_SERIES_IDS,
+                    (float(value) for value in model.feature_importances_),
+                    strict=True,
+                )
             ),
         }
 

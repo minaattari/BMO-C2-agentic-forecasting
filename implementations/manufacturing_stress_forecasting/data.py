@@ -1,4 +1,4 @@
-"""FRED data service for the five-variable manufacturing-stress MVP."""
+"""Data service for the six-variable manufacturing-stress MVP."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from aieng.forecasting.data.features import StaticFrameAdapter
 from manufacturing_stress_forecasting.features import (
     FEATURE_PERIODS,
     FED_FUNDS_SERIES_ID,
+    GSCPI_SERIES_ID,
     YIELD_CURVE_SERIES_ID,
     apply_conservative_monthly_release_lag,
     build_ipman_feature_frames,
     build_macro_feature_frames,
 )
+from manufacturing_stress_forecasting.gscpi import NewYorkFedGSCPIAdapter
 from manufacturing_stress_forecasting.targets import (
     DEFAULT_LOOKBACK_MONTHS,
     DEFAULT_STRESS_THRESHOLD_PCT,
@@ -32,21 +34,24 @@ STRESS_SERIES_ID = "manufacturing_stress"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRED_CACHE_DIR = _REPO_ROOT / "data" / "fred"
+DEFAULT_GSCPI_CACHE_PATH = _REPO_ROOT / "data" / "new_york_fed" / "gscpi_interactive_data.csv"
 
 
 def build_manufacturing_stress_service(
     *,
     cache_dir: str | Path = DEFAULT_FRED_CACHE_DIR,
+    gscpi_cache_path: str | Path = DEFAULT_GSCPI_CACHE_PATH,
     refresh: bool = False,
     release_lag_months: int = 1,
     stress_lookback_months: int = DEFAULT_LOOKBACK_MONTHS,
     stress_threshold_pct: float = DEFAULT_STRESS_THRESHOLD_PCT,
 ) -> DataService:
-    """Build a service containing the target and five cutoff-aware input features."""
+    """Build a service containing the target and six release-lagged inputs."""
     raw_ipman = FREDAdapter(IPMAN_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
     raw_fed_funds = FREDAdapter(FED_FUNDS_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
     raw_treasury_10y = FREDAdapter(TREASURY_10Y_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
     raw_treasury_2y = FREDAdapter(TREASURY_2Y_FRED_ID, cache_dir=cache_dir, refresh=refresh).fetch()
+    gscpi = NewYorkFedGSCPIAdapter(cache_path=gscpi_cache_path, refresh=refresh).fetch()
 
     ipman = apply_conservative_monthly_release_lag(raw_ipman, months=release_lag_months)
     ipman_feature_frames = build_ipman_feature_frames(ipman)
@@ -110,6 +115,17 @@ def build_manufacturing_stress_service(
             frequency="MS",
         ),
     )
+    service.register(
+        GSCPI_SERIES_ID,
+        StaticFrameAdapter(gscpi),
+        SeriesMetadata(
+            series_id=GSCPI_SERIES_ID,
+            description="New York Fed Global Supply Chain Pressure Index",
+            source="Federal Reserve Bank of New York (GSCPI)",
+            units="Standard deviations from historical average",
+            frequency="MS",
+        ),
+    )
 
     service.register(
         STRESS_SERIES_ID,
@@ -130,6 +146,7 @@ def build_manufacturing_stress_service(
 
 __all__ = [
     "DEFAULT_FRED_CACHE_DIR",
+    "DEFAULT_GSCPI_CACHE_PATH",
     "FED_FUNDS_FRED_ID",
     "IPMAN_FRED_ID",
     "IPMAN_SERIES_ID",

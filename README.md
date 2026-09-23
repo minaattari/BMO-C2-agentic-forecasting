@@ -45,6 +45,7 @@ Use cases, methods, and links are in the [contents](#contents) table above. Each
 
 - **StatCan** — Canadian CPI and related macroeconomic series.
 - **FRED** — macroeconomic and commodity series.
+- **New York Fed GSCPI** — monthly global supply-chain pressure.
 - **yfinance** — equities, indices, and commodity futures.
 
 Historical data is cached locally under `data/` and is not committed. Each implementation's README names the fetch script(s) it needs.

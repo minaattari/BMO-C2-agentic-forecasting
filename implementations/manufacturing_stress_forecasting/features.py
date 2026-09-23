@@ -13,6 +13,7 @@ IPMAN_CHANGE_3M_SERIES_ID = "ipman_change_3m_pct"
 IPMAN_CHANGE_6M_SERIES_ID = "ipman_change_6m_pct"
 FED_FUNDS_SERIES_ID = "fed_funds_rate_pct"
 YIELD_CURVE_SERIES_ID = "treasury_10y_minus_2y_pct_points"
+GSCPI_SERIES_ID = "global_supply_chain_pressure_index"
 
 FEATURE_PERIODS: dict[str, int] = {
     IPMAN_CHANGE_1M_SERIES_ID: 1,
@@ -25,6 +26,7 @@ MACRO_FEATURE_SERIES_IDS: tuple[str, ...] = (
     YIELD_CURVE_SERIES_ID,
 )
 FEATURE_SERIES_IDS: tuple[str, ...] = IPMAN_FEATURE_SERIES_IDS + MACRO_FEATURE_SERIES_IDS
+STATISTICAL_FEATURE_SERIES_IDS: tuple[str, ...] = FEATURE_SERIES_IDS + (GSCPI_SERIES_ID,)
 
 
 def apply_conservative_monthly_release_lag(frame: pd.DataFrame, months: int = 1) -> pd.DataFrame:
@@ -123,11 +125,13 @@ __all__ = [
     "FED_FUNDS_SERIES_ID",
     "FEATURE_PERIODS",
     "FEATURE_SERIES_IDS",
+    "GSCPI_SERIES_ID",
     "IPMAN_FEATURE_SERIES_IDS",
     "IPMAN_CHANGE_1M_SERIES_ID",
     "IPMAN_CHANGE_3M_SERIES_ID",
     "IPMAN_CHANGE_6M_SERIES_ID",
     "MACRO_FEATURE_SERIES_IDS",
+    "STATISTICAL_FEATURE_SERIES_IDS",
     "YIELD_CURVE_SERIES_ID",
     "apply_conservative_monthly_release_lag",
     "build_feature_snapshot",

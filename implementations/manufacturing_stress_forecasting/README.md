@@ -1,14 +1,15 @@
-# Manufacturing stress forecasting — minimal IPMAN MVP
+# Manufacturing stress forecasting — IPMAN and GSCPI MVP
 
 This implementation asks one Track 1 question:
 
 > Given information available at a monthly forecast origin, what is the
 > probability that U.S. manufacturing will be under stress three months later?
 
-The model deliberately uses only five explanatory variables: trailing
-1-, 3-, and 6-month IPMAN changes, the effective federal funds rate, and the
-10-year minus 2-year Treasury yield spread. The small panel keeps the first
-multivariate experiment interpretable.
+The deterministic models use six explanatory variables: trailing 1-, 3-, and
+6-month IPMAN changes, the effective federal funds rate, the 10-year minus
+2-year Treasury yield spread, and the New York Fed Global Supply Chain
+Pressure Index (GSCPI). The small panel keeps the multivariate experiment
+interpretable.
 
 ## Target
 
@@ -24,11 +25,13 @@ That distinction makes this forecasting rather than current-state detection.
 
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
-  the five IPMAN/rate variables.
+  the six IPMAN, rate, and supply-chain variables.
 - `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
-  tree classifier using the same five variables and cutoff-safe training rows.
-- `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
-  five cutoff-safe signals plus recent IPMAN history and historical base rates.
+  tree classifier using the same six variables and release-lagged training rows.
+- `manufacturing_stress_analyst`: a structured LLM predictor that remains on
+  the original five IPMAN/rate signals plus recent IPMAN history and historical
+  base rates; GSCPI is added only to logistic regression and XGBoost for this
+  controlled comparison.
 
 All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
@@ -36,11 +39,18 @@ All predictors return `BinaryForecast` probabilities; backtested predictors are 
 Compare XGBoost with logistic regression and historical frequency rather than judging it
 in isolation, because this small monthly dataset can overfit flexible models.
 `FREDAdapter` caches `IPMAN`, `DFF`, `DGS10`, and `DGS2` under `data/fred/`.
+`NewYorkFedGSCPIAdapter` downloads the official GSCPI vintage table without an
+API key and caches it under `data/new_york_fed/gscpi_interactive_data.csv`.
 IPMAN is conservatively treated as available one month after its reference
 month. Daily rate observations are treated as available on the next business
-day and collapsed to their final monthly observation. The standard FRED API
-does not provide full point-in-time vintages, so historical observations may
-still contain later revisions; a production study should use ALFRED vintages.
+day and collapsed to their final monthly observation. GSCPI is treated as
+available on the fourth U.S. federal business day of the following month.
+
+The GSCPI adapter uses the latest column in the New York Fed's revision table.
+Consequently, its historical values are release-lagged but are not true
+point-in-time vintages and can include later revisions. The standard FRED API
+also does not provide full point-in-time vintages. A production study should
+retain each GSCPI release and use ALFRED vintages for the FRED series.
 
 ## Run
 
@@ -56,7 +66,7 @@ From the repository root, put a personal FRED key in `.env` or export it:
 export FRED_API_KEY="..."
 ```
 
-Populate the cache and inspect the registered series:
+Populate both the FRED and GSCPI caches and inspect the registered series:
 
 ```bash
 uv run python scripts/fetch_manufacturing_stress.py
@@ -72,6 +82,26 @@ The output prints one mean Brier score per predictor; lower is better. The
 logistic model should be compared against historical frequency, not judged in
 isolation.
 
+### Controlled deterministic parameter sweep
+
+Use the tuning stage to compare three logistic regularization values and four
+small XGBoost configurations over 2000–2017:
+
+    uv run --directory implementations python -m manufacturing_stress_forecasting.run_parameter_smoke
+
+The table reports mean Brier score, the gap from historical frequency, and
+Brier skill. The tuning stage prints the best non-baseline candidate and the
+exact confirmation command. Confirm only that selected candidate on the fixed
+2018–2024 window, for example:
+
+    uv run --directory implementations python -m manufacturing_stress_forecasting.run_parameter_smoke \
+      --stage confirm --candidate logistic_c_0_1
+
+Pass --stride 1 to either stage for an every-month diagnostic; the default
+stride is 3. Use the same stride for tuning and confirmation. This script does
+not use caches or make LLM calls. Keeping selection and confirmation separate
+reduces the risk of choosing parameters that merely fit the confirmation
+period.
 Run the token-limited LLMP backtest explicitly:
 
 ```bash
@@ -112,6 +142,7 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 ## Next steps
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
-2. Compare the five-variable logistic score with the earlier IPMAN-only result.
+2. Compare the six-variable scores with the five-variable results to measure
+   whether GSCPI improves out-of-sample Brier score.
 3. Compare the cached agent backtest against the deterministic baselines only
   after checking scored and skipped origin counts.
