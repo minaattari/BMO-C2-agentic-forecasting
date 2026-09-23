@@ -1,4 +1,4 @@
-"""Fetch/cache IPMAN and rate inputs, then print the registered-series summary."""
+"""Fetch/cache manufacturing-stress inputs, then print the registered-series summary."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from manufacturing_stress_forecasting.data import build_manufacturing_stress_ser
 
 
 def main() -> None:
-    """Populate the IPMAN/rates cache and report the derived series."""
+    """Populate the FRED/Yahoo Finance caches and report the registered series."""
     service = build_manufacturing_stress_service()
     print(service.summary().to_string(index=False))
 

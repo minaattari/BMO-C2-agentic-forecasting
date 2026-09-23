@@ -1,14 +1,16 @@
-# Manufacturing stress forecasting — minimal IPMAN MVP
+# Manufacturing stress forecasting
 
 This implementation asks one Track 1 question:
 
 > Given information available at a monthly forecast origin, what is the
 > probability that U.S. manufacturing will be under stress three months later?
 
-The model deliberately uses only five explanatory variables: trailing
-1-, 3-, and 6-month IPMAN changes, the effective federal funds rate, and the
-10-year minus 2-year Treasury yield spread. The small panel keeps the first
-multivariate experiment interpretable.
+The feature service provides trailing 1-, 3-, and 6-month IPMAN changes plus
+the requested FRED and Yahoo Finance fields: `FEDFUNDS`, `YC_SPREAD`,
+`CPIAUCSL`, `CPI_YOY`, `UNRATE`, `ICSA`, `VIXCLS`, `HY_SPREAD`, and 3- and
+12-month returns for both `SPY` and `XLI`. FRED levels are collapsed to
+monthly observations, derived fields use the documented source series, and
+Yahoo returns use monthly adjusted-close prices.
 
 ## Target
 
@@ -24,18 +26,23 @@ That distinction makes this forecasting rather than current-state detection.
 
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
-  the five IPMAN/rate variables.
+  the IPMAN and macro variables.
 - `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
-  tree classifier using the same five variables and cutoff-safe training rows.
+  tree classifier using the same IPMAN and macro variables and cutoff-safe
+  training rows.
 - `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
-  five cutoff-safe signals plus recent IPMAN history and historical base rates.
+  cutoff-safe IPMAN and macro signals plus recent IPMAN history and historical
+  base rates.
 
 All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
 ## Data and cutoff assumptions
 Compare XGBoost with logistic regression and historical frequency rather than judging it
 in isolation, because this small monthly dataset can overfit flexible models.
-`FREDAdapter` caches `IPMAN`, `DFF`, `DGS10`, and `DGS2` under `data/fred/`.
+`FREDAdapter` caches the required FRED series under `data/fred/`, and
+`YFinanceDailyAdapter` caches `SPY` and `XLI` under `data/yfinance/`.
+Yahoo refreshes request history from 1998 onward explicitly so the provider's
+default recent-history window cannot replace the long-term cache.
 IPMAN is conservatively treated as available one month after its reference
 month. Daily rate observations are treated as available on the next business
 day and collapsed to their final monthly observation. The standard FRED API
@@ -106,6 +113,6 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 ## Next steps
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
-2. Compare the five-variable logistic score with the earlier IPMAN-only result.
+2. Compare the expanded macro-panel score with the earlier IPMAN-only result.
 3. Compare the cached agent backtest against the deterministic baselines only
   after checking scored and skipped origin counts.

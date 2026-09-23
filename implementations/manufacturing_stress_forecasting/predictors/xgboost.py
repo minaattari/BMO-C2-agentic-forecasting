@@ -1,4 +1,4 @@
-"""Five-variable XGBoost predictor for three-month-ahead manufacturing stress."""
+"""XGBoost predictor for three-month-ahead manufacturing stress."""
 
 from __future__ import annotations
 
