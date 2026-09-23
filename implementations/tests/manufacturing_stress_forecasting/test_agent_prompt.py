@@ -7,7 +7,10 @@ import pandas as pd
 from aieng.forecasting.data import DataService, SeriesMetadata
 from aieng.forecasting.data.features import StaticFrameAdapter
 from aieng.forecasting.evaluation import ForecastingTask
-from manufacturing_stress_forecasting.analyst_agent import ManufacturingStressPromptBuilder
+from manufacturing_stress_forecasting.analyst_agent import (
+    ManufacturingStressPromptBuilder,
+    build_manufacturing_stress_agent_config,
+)
 from manufacturing_stress_forecasting.data import IPMAN_SERIES_ID, STRESS_SERIES_ID
 from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS
 
@@ -68,7 +71,17 @@ def test_prompt_uses_only_cutoff_visible_evidence() -> None:
     assert payload["as_of"] == "2020-06-01"
     assert payload["forecast_date"] == "2020-09-01"
     assert payload["recent_ipman"][-1]["value"] == 105.0
+    assert len(payload["recent_ipman"]) <= 12
     assert len(payload["current_ipman_signals_pct"]) == 3
     assert len(payload["current_macro_signals"]) == 2
     assert 999.0 not in payload["current_ipman_signals_pct"].values()
     assert 999.0 not in payload["current_macro_signals"].values()
+    assert "\n" not in prompt
+
+
+def test_agent_config_limits_output_tokens() -> None:
+    config = build_manufacturing_stress_agent_config()
+
+    assert config.max_output_tokens == 384
+    assert config.temperature == 0.1
+    assert config.seed == 42

@@ -42,7 +42,7 @@ def _build_instruction() -> str:
         "as possible evidence for stress; explain how the signals interact.\n"
         "4. Do not double-count correlated signals or turn a weak signal into certainty.\n"
         "5. `probability` means P(stress=1), not confidence in your explanation.\n"
-        "6. Give a concise rationale, identify both supporting and countervailing evidence, and remain calibrated.\n"
+        "6. Give a rationale of at most 40 words, identify supporting and countervailing evidence, and remain calibrated.\n"
         "7. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
         "away from stress, and `neutral` when mixed.\n\n"
         "## Output\n\n"
@@ -55,7 +55,7 @@ class ManufacturingStressPromptBuilder(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    recent_history_months: int = Field(default=24, ge=6, le=120)
+    recent_history_months: int = Field(default=12, ge=6, le=120)
     trailing_base_rate_months: int = Field(default=60, ge=12, le=240)
 
     def __call__(self, *, task: ForecastingTask, context: ForecastContext) -> str:
@@ -123,7 +123,7 @@ class ManufacturingStressPromptBuilder(BaseModel):
             },
             "recent_ipman": recent_ipman,
         }
-        return json.dumps(payload, indent=2)
+        return json.dumps(payload, separators=(",", ":"))
 
 
 def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentConfig:
@@ -134,7 +134,7 @@ def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentCon
         instruction=_build_instruction(),
         temperature=0.1,
         seed=42,
-        max_output_tokens=2_048,
+        max_output_tokens=384,
     )
 
 
