@@ -1,4 +1,4 @@
-"""Five-variable logistic baseline for three-month-ahead manufacturing stress."""
+"""Logistic baseline for three-month-ahead manufacturing stress."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS, build_
 
 
 class ManufacturingStressLogisticPredictor(Predictor):
-    """Forecast manufacturing stress from three IPMAN and two rate signals.
+    """Forecast manufacturing stress from IPMAN and macroeconomic signals.
 
     The model is rebuilt at every backtest origin. For each resolved historical
     outcome at month ``r``, its feature vector is reconstructed at ``r - lead``

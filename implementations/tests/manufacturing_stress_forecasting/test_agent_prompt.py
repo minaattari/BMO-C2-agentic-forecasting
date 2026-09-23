@@ -73,7 +73,7 @@ def test_prompt_uses_only_cutoff_visible_evidence() -> None:
     assert payload["recent_ipman"][-1]["value"] == 105.0
     assert len(payload["recent_ipman"]) <= 12
     assert len(payload["current_ipman_signals_pct"]) == 3
-    assert len(payload["current_macro_signals"]) == 2
+    assert len(payload["current_macro_signals"]) == 12
     assert 999.0 not in payload["current_ipman_signals_pct"].values()
     assert 999.0 not in payload["current_macro_signals"].values()
     assert "\n" not in prompt

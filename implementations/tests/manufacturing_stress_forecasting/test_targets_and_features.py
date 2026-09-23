@@ -3,8 +3,13 @@
 import pandas as pd
 import pytest
 from manufacturing_stress_forecasting.features import (
+    CPI_YOY_SERIES_ID,
     FEATURE_SERIES_IDS,
     FED_FUNDS_SERIES_ID,
+    SPY_RETURN_3M_SERIES_ID,
+    SPY_RETURN_12M_SERIES_ID,
+    XLI_RETURN_3M_SERIES_ID,
+    XLI_RETURN_12M_SERIES_ID,
     YIELD_CURVE_SERIES_ID,
     build_feature_snapshot,
     build_macro_feature_frames,
@@ -74,3 +79,29 @@ def test_macro_features_use_month_end_values_with_next_business_day_release() ->
     assert fed["released_at"].tolist() == [pd.Timestamp("2024-02-01"), pd.Timestamp("2024-03-01")]
     assert spread["value"].tolist() == pytest.approx([-0.40, -0.30])
     assert spread["released_at"].tolist() == [pd.Timestamp("2024-02-01"), pd.Timestamp("2024-03-01")]
+
+
+def test_expanded_macro_features_include_cpi_yoy_and_monthly_market_return() -> None:
+    timestamps = pd.date_range("2023-01-01", periods=13, freq="MS")
+
+    def frame(values: list[float]) -> pd.DataFrame:
+        return pd.DataFrame({"timestamp": timestamps, "value": values, "released_at": timestamps})
+
+    features = build_macro_feature_frames(
+        frame([5.0] * 13),
+        frame([4.0] * 13),
+        frame([3.0] * 13),
+        frame([100.0] + [100.0] * 11 + [110.0]),
+        frame([4.0] * 13),
+        frame([200.0] * 13),
+        frame([15.0] * 13),
+        frame([300.0] * 13),
+        frame([100.0 + 5.0 * index for index in range(13)]),
+        frame([100.0] * 13),
+    )
+
+    assert features[CPI_YOY_SERIES_ID]["value"].iloc[-1] == pytest.approx(10.0)
+    assert features[SPY_RETURN_3M_SERIES_ID]["value"].iloc[-1] == pytest.approx(100.0 * 15.0 / 145.0)
+    assert features[SPY_RETURN_12M_SERIES_ID]["value"].iloc[-1] == pytest.approx(60.0)
+    assert features[XLI_RETURN_3M_SERIES_ID]["value"].iloc[-1] == pytest.approx(0.0)
+    assert features[XLI_RETURN_12M_SERIES_ID]["value"].iloc[-1] == pytest.approx(0.0)

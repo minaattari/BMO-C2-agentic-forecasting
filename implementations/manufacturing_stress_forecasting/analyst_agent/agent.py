@@ -38,7 +38,7 @@ def _build_instruction() -> str:
         "## Rules\n\n"
         "1. Use only the JSON payload. Do not use remembered events or facts after the forecast origin.\n"
         "   Historical backtests may anonymize calendar dates; do not try to infer the hidden dates.\n"
-        "2. Start from the supplied historical base rate, then adjust using the five supplied signals.\n"
+        "2. Start from the supplied historical base rate, then adjust using the supplied IPMAN and macro signals.\n"
         "3. Treat negative IPMAN momentum, a restrictive fed funds rate, and an inverted 10Y-2Y spread "
         "as possible evidence for stress; explain how the signals interact.\n"
         "4. Do not double-count correlated signals or turn a weak signal into certainty.\n"
