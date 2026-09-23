@@ -11,6 +11,7 @@ from manufacturing_stress_forecasting.analyst_agent import (
     ManufacturingStressPromptBuilder,
     build_manufacturing_stress_agent_config,
 )
+from manufacturing_stress_forecasting.analyst_agent.json_runner import normalize_json_object
 from manufacturing_stress_forecasting.data import IPMAN_SERIES_ID, STRESS_SERIES_ID
 from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS
 
@@ -83,8 +84,31 @@ def test_agent_config_limits_output_tokens() -> None:
     config = build_manufacturing_stress_agent_config()
 
     assert config.max_output_tokens == 384
-    assert config.temperature == 0.1
+    assert config.temperature == 0.0
     assert config.seed == 42
+
+
+def test_python_dict_agent_output_is_normalized_to_json() -> None:
+    raw_output = (
+        "{'probability': 0.08, 'reasoning': 'Signals are mixed.', "
+        "'direction_bias': 'neutral', 'key_signals': ['IPMAN'], 'confidence': 'medium'}"
+    )
+
+    normalized = normalize_json_object(raw_output)
+
+    assert json.loads(normalized) == {
+        "probability": 0.08,
+        "reasoning": "Signals are mixed.",
+        "direction_bias": "neutral",
+        "key_signals": ["IPMAN"],
+        "confidence": "medium",
+    }
+
+
+def test_nonliteral_agent_output_is_not_executed_or_rewritten() -> None:
+    raw_output = "{'probability': __import__('os').system('false')}"
+
+    assert normalize_json_object(raw_output) == raw_output
 
 
 def test_backtest_prompt_anonymizes_calendar_dates() -> None:

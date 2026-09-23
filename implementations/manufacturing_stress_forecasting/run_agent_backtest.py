@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = Path(__file__).resolve().parent / "specs" / "manufacturing_stress_smoke.yaml"
 STORE_DIR = REPO_ROOT / "data" / "predictions"
 # Bump when prompt or predictor semantics change without changing predictor IDs.
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 
 def backtest_cache_id(spec: BacktestSpec) -> str:

@@ -82,8 +82,14 @@ This evaluates historical frequency, logistic regression, XGBoost, and the
 `manufacturing_stress_analyst` agent through the same binary backtest and
 Brier-score calculation. The agent run uses the default lite model, a
 12-month IPMAN history, compact JSON prompts, a 384-token response cap, and
-one retry per failed origin. Calendar dates are replaced by relative month
-offsets in retrospective agent prompts to reduce historical-event recall.
+one retry per failed origin. It uses zero-temperature generation and explicitly
+requests strict double-quoted JSON. A manufacturing-local runner safely
+normalizes the proxy's occasional single-quoted Python dictionary response
+before schema validation; the shared Vector AgentPredictor remains unchanged.
+The local predictor keeps optional Langfuse tracing disabled, so these test runs
+do not export prompts and responses or attach Langfuse trace URLs.
+Calendar dates are replaced by relative month offsets in retrospective agent
+prompts to reduce historical-event recall.
 
 Complete results are cached under a specification-fingerprinted directory in
 `data/predictions/`, so changing the stride, horizon, dates, or warmup cannot
