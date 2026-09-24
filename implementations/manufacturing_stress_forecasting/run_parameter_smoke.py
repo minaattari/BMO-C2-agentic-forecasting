@@ -20,6 +20,7 @@ from manufacturing_stress_forecasting.predictors import (
     ManufacturingStressLogisticPredictor,
     ManufacturingStressXGBoostPredictor,
 )
+from manufacturing_stress_forecasting.targets import DEFAULT_STRESS_THRESHOLD_PCT
 
 
 SPEC_PATH = Path(__file__).resolve().parent / "specs" / "manufacturing_stress_smoke.yaml"
@@ -107,7 +108,20 @@ def _parse_args() -> argparse.Namespace:
         default=3,
         help="Months between forecast origins. This does not change the forecast horizon.",
     )
+    parser.add_argument(
+        "--stress-threshold-pct",
+        type=float,
+        default=DEFAULT_STRESS_THRESHOLD_PCT,
+        help=(
+            "Trailing 3-month IPMAN percentage-change threshold that defines the stress "
+            f"label (must be negative; default {DEFAULT_STRESS_THRESHOLD_PCT}). Changing this "
+            "redefines the target, so tune and confirm results at different thresholds are not "
+            "comparable to each other."
+        ),
+    )
     args = parser.parse_args()
+    if args.stress_threshold_pct >= 0:
+        parser.error(f"--stress-threshold-pct must be negative; got {args.stress_threshold_pct}.")
     if args.stage == "confirm" and args.candidate is None:
         parser.error("--candidate is required when --stage confirm is selected.")
     if args.stage == "tune" and args.candidate is not None:
@@ -230,11 +244,12 @@ def main() -> None:
 
     spec = build_experiment_spec(base_spec, stage=args.stage, stride=args.stride)
     named_predictors = predictors_for_stage(args.stage, args.candidate)
-    service = build_manufacturing_stress_service()
+    service = build_manufacturing_stress_service(stress_threshold_pct=args.stress_threshold_pct)
 
     print(
         f"Stage={args.stage}; origins={spec.start.date()} to {spec.end.date()}; "
-        f"stride={spec.stride}; horizon={spec.task.horizons[0]} month(s)"
+        f"stride={spec.stride}; horizon={spec.task.horizons[0]} month(s); "
+        f"stress_threshold_pct={args.stress_threshold_pct}"
     )
     results = run_candidates(named_predictors, spec=spec, service=service)
     table = comparison_table(results)
