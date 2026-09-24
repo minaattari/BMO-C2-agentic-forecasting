@@ -87,10 +87,7 @@ def run_or_load_backtest(
         retry_delay=1.0,
     )
     if result.skipped_origins:
-        print(
-            f"{predictor_id}: not cached because the run skipped "
-            f"{result.skipped_origins} origin(s)"
-        )
+        print(f"{predictor_id}: not cached because the run skipped {result.skipped_origins} origin(s)")
         return result
 
     path = save_backtest_result(result, spec_id=resolved_spec_id, store_dir=store_dir)

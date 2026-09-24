@@ -41,7 +41,7 @@ def test_gscpi_adapter_reads_an_existing_cache_without_network(tmp_path: Path) -
     assert frame["value"].tolist() == pytest.approx([1.1, 1.2])
 
 
-def test_only_statistical_models_add_gscpi_to_the_original_five_signals() -> None:
-    """GSCPI expands the statistical panel without changing the LLM prompt."""
+def test_gscpi_is_registered_as_an_optional_challenger() -> None:
+    """GSCPI stays outside the active statistical and LLM feature panels."""
     assert GSCPI_SERIES_ID not in FEATURE_SERIES_IDS
-    assert (*FEATURE_SERIES_IDS, GSCPI_SERIES_ID) == STATISTICAL_FEATURE_SERIES_IDS
+    assert STATISTICAL_FEATURE_SERIES_IDS == FEATURE_SERIES_IDS

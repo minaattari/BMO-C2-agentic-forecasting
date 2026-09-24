@@ -1,4 +1,4 @@
-"""Six-variable XGBoost predictor for three-month-ahead manufacturing stress."""
+"""XGBoost predictor for three-month-ahead manufacturing stress."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class ManufacturingStressXGBoostPredictor(ManufacturingStressLogisticPredictor):
     @property
     def predictor_id(self) -> str:
         """Return the stable artifact identifier."""
-        return "manufacturing_stress_xgboost_ipman_rates_gscpi"
+        return "manufacturing_stress_xgboost_ipman_rates"
 
     def _fit_and_predict(
         self,

@@ -5,12 +5,17 @@ This implementation asks one Track 1 question:
 > Given information available at a monthly forecast origin, what is the
 > probability that U.S. manufacturing will be under stress three months later?
 
-The deterministic models currently use five explanatory variables: trailing
-1-, 3-, and 6-month IPMAN changes, the effective federal funds rate, and the
-10-year minus 2-year Treasury yield spread. GSCPI remains registered in the
-data service for experimentation but is excluded from
-`STATISTICAL_FEATURE_SERIES_IDS`, so it is not supplied to logistic regression
-or XGBoost in the current configuration.
+The feature service provides 15 active variables: trailing 1-, 3-, and
+6-month IPMAN changes plus the requested FRED and Yahoo Finance fields:
+`FEDFUNDS`, `YC_SPREAD`, `CPIAUCSL`, `CPI_YOY`, `UNRATE`, `ICSA`, `VIXCLS`,
+`HY_SPREAD`, and 3- and 12-month returns for both `SPY` and `XLI`. FRED
+levels are collapsed to monthly observations, derived fields use the documented
+source series, and Yahoo returns use monthly adjusted-close prices.
+
+The New York Fed GSCPI is also loaded and registered for controlled
+experiments, but it is deliberately excluded from
+`STATISTICAL_FEATURE_SERIES_IDS`. Logistic regression and XGBoost therefore
+use the 15 active IPMAN, macroeconomic, and market variables without GSCPI.
 
 ## Target
 
@@ -26,18 +31,21 @@ That distinction makes this forecasting rather than current-state detection.
 
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
-  the five active IPMAN/rate variables.
+  the active IPMAN, macroeconomic, and market variables.
 - `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
-  tree classifier using the same five variables and release-lagged training rows.
-- `manufacturing_stress_analyst`: a structured LLM predictor receiving the five
-  IPMAN/rate signals plus recent IPMAN history and historical base rates.
+  tree classifier using the same variables and cutoff-safe training rows.
+- `manufacturing_stress_analyst`: a structured LLM predictor receiving the same
+  cutoff-safe signals plus recent IPMAN history and historical base rates.
 
 All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
 ## Data and cutoff assumptions
 Compare XGBoost with logistic regression and historical frequency rather than judging it
 in isolation, because this small monthly dataset can overfit flexible models.
-`FREDAdapter` caches `IPMAN`, `DFF`, `DGS10`, and `DGS2` under `data/fred/`.
+`FREDAdapter` caches the required FRED series under `data/fred/`, and
+`YFinanceDailyAdapter` caches `SPY` and `XLI` under `data/yfinance/`.
+Yahoo refreshes request history from 1998 onward explicitly so the provider's
+default recent-history window cannot replace the long-term cache.
 `NewYorkFedGSCPIAdapter` downloads the official GSCPI vintage table without an
 API key and caches it under `data/new_york_fed/gscpi_interactive_data.csv`.
 IPMAN is conservatively treated as available one month after its reference
@@ -52,14 +60,14 @@ also does not provide full point-in-time vintages. A production study should
 retain each GSCPI release and use ALFRED vintages for the FRED series.
 
 GSCPI is currently loaded and registered but is not an active predictor input.
-Add it back only as a controlled challenger and compare five- and six-variable
-models over identical dates.
+Add it back only as a controlled challenger and compare models with and without
+GSCPI over identical dates.
 
 ## Run
 
 The general interactive entry point is
 [`manufacturing_stress_workbench.ipynb`](manufacturing_stress_workbench.ipynb).
-Open it in VS Code or Jupyter and use its configuration cell to refresh FRED
+Open it in VS Code or Jupyter and use its configuration cell to refresh input
 data, run the deterministic smoke test, and explicitly opt in to the cached
 LLMP backtest without using the terminal.
 
@@ -74,7 +82,7 @@ From the repository root, put a personal FRED key in `.env` or export it:
 export FRED_API_KEY="..."
 ```
 
-Populate both the FRED and GSCPI caches and inspect the registered series:
+Populate the FRED, Yahoo Finance, and GSCPI caches and inspect the registered series:
 
 ```bash
 uv run python scripts/fetch_manufacturing_stress.py
@@ -190,7 +198,8 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 ## Next steps
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
-2. Compare a separate six-variable GSCPI challenger with the active
-   five-variable models over identical training and evaluation dates.
-3. Compare the cached agent backtest against the deterministic baselines only
-  after checking scored and skipped origin counts.
+2. Compare the expanded macro-panel score with the earlier IPMAN-only result.
+3. Compare a separate GSCPI challenger with the active statistical models over
+   identical training and evaluation dates.
+4. Compare the cached agent backtest against the deterministic baselines only
+   after checking scored and skipped origin counts.
