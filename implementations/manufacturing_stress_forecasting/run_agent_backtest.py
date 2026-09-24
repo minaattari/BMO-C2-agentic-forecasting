@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SPEC_PATH = Path(__file__).resolve().parent / "specs" / "manufacturing_stress_smoke.yaml"
 STORE_DIR = REPO_ROOT / "data" / "predictions"
 # Bump when prompt or predictor semantics change without changing predictor IDs.
-CACHE_VERSION = "v2"
+CACHE_VERSION = "v3"
 
 
 def backtest_cache_id(spec: BacktestSpec) -> str:
@@ -87,10 +87,7 @@ def run_or_load_backtest(
         retry_delay=1.0,
     )
     if result.skipped_origins:
-        print(
-            f"{predictor_id}: not cached because the run skipped "
-            f"{result.skipped_origins} origin(s)"
-        )
+        print(f"{predictor_id}: not cached because the run skipped {result.skipped_origins} origin(s)")
         return result
 
     path = save_backtest_result(result, spec_id=resolved_spec_id, store_dir=store_dir)

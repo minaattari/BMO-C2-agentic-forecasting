@@ -1,4 +1,4 @@
-"""FRED and Yahoo Finance data service for manufacturing-stress forecasting."""
+"""FRED, Yahoo Finance, and New York Fed data for manufacturing-stress forecasting."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from manufacturing_stress_forecasting.features import (
     FEATURE_PERIODS,
     FED_FUNDS_SERIES_ID,
     FEDFUNDS_SERIES_ID,
+    GSCPI_SERIES_ID,
     HY_SPREAD_SERIES_ID,
     ICSA_SERIES_ID,
     SPY_RETURN_3M_SERIES_ID,
@@ -27,6 +28,7 @@ from manufacturing_stress_forecasting.features import (
     build_ipman_feature_frames,
     build_macro_feature_frames,
 )
+from manufacturing_stress_forecasting.gscpi import NewYorkFedGSCPIAdapter
 from manufacturing_stress_forecasting.targets import (
     DEFAULT_LOOKBACK_MONTHS,
     DEFAULT_STRESS_THRESHOLD_PCT,
@@ -53,6 +55,7 @@ STRESS_SERIES_ID = "manufacturing_stress"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_FRED_CACHE_DIR = _REPO_ROOT / "data" / "fred"
+DEFAULT_GSCPI_CACHE_PATH = _REPO_ROOT / "data" / "new_york_fed" / "gscpi_interactive_data.csv"
 DEFAULT_YAHOO_CACHE_DIR = _REPO_ROOT / "data" / "yfinance"
 
 
@@ -60,6 +63,7 @@ def build_manufacturing_stress_service(
     *,
     cache_dir: str | Path = DEFAULT_FRED_CACHE_DIR,
     yahoo_cache_dir: str | Path = DEFAULT_YAHOO_CACHE_DIR,
+    gscpi_cache_path: str | Path = DEFAULT_GSCPI_CACHE_PATH,
     refresh: bool = False,
     release_lag_months: int = 1,
     stress_lookback_months: int = DEFAULT_LOOKBACK_MONTHS,
@@ -87,6 +91,7 @@ def build_manufacturing_stress_service(
         cache_dir=yahoo_cache_dir,
         refresh=refresh,
     ).fetch()
+    gscpi = NewYorkFedGSCPIAdapter(cache_path=gscpi_cache_path, refresh=refresh).fetch()
 
     ipman = apply_conservative_monthly_release_lag(raw_ipman, months=release_lag_months)
     ipman_feature_frames = build_ipman_feature_frames(ipman)
@@ -160,17 +165,37 @@ def build_manufacturing_stress_service(
 
     metadata = {
         FEDFUNDS_SERIES_ID: ("Effective federal funds rate", "FRED (FEDFUNDS)", "Percent"),
-        YC_SPREAD_SERIES_ID: ("10-year minus 2-year Treasury yield spread", "FRED (DGS10 minus DGS2)", "Percentage points"),
+        YC_SPREAD_SERIES_ID: (
+            "10-year minus 2-year Treasury yield spread",
+            "FRED (DGS10 minus DGS2)",
+            "Percentage points",
+        ),
         CPIAUCSL_SERIES_ID: ("Consumer Price Index for All Urban Consumers", "FRED (CPIAUCSL)", "Index"),
         CPI_YOY_SERIES_ID: ("Consumer Price Index year-over-year change", "Derived from FRED (CPIAUCSL)", "Percent"),
         UNRATE_SERIES_ID: ("U.S. unemployment rate", "FRED (UNRATE)", "Percent"),
         ICSA_SERIES_ID: ("Initial claims for unemployment insurance", "FRED (ICSA)", "Number"),
         VIXCLS_SERIES_ID: ("CBOE volatility index", "FRED (VIXCLS)", "Index"),
         HY_SPREAD_SERIES_ID: ("U.S. high-yield option-adjusted spread", "FRED (BAMLH0A0HYM2)", "Percentage points"),
-        SPY_RETURN_3M_SERIES_ID: ("SPY trailing 3-month adjusted-close return", "Yahoo Finance (SPY), derived", "Percent"),
-        SPY_RETURN_12M_SERIES_ID: ("SPY trailing 12-month adjusted-close return", "Yahoo Finance (SPY), derived", "Percent"),
-        XLI_RETURN_3M_SERIES_ID: ("XLI trailing 3-month adjusted-close return", "Yahoo Finance (XLI), derived", "Percent"),
-        XLI_RETURN_12M_SERIES_ID: ("XLI trailing 12-month adjusted-close return", "Yahoo Finance (XLI), derived", "Percent"),
+        SPY_RETURN_3M_SERIES_ID: (
+            "SPY trailing 3-month adjusted-close return",
+            "Yahoo Finance (SPY), derived",
+            "Percent",
+        ),
+        SPY_RETURN_12M_SERIES_ID: (
+            "SPY trailing 12-month adjusted-close return",
+            "Yahoo Finance (SPY), derived",
+            "Percent",
+        ),
+        XLI_RETURN_3M_SERIES_ID: (
+            "XLI trailing 3-month adjusted-close return",
+            "Yahoo Finance (XLI), derived",
+            "Percent",
+        ),
+        XLI_RETURN_12M_SERIES_ID: (
+            "XLI trailing 12-month adjusted-close return",
+            "Yahoo Finance (XLI), derived",
+            "Percent",
+        ),
     }
     for series_id, frame in macro_feature_frames.items():
         if series_id not in metadata:
@@ -187,6 +212,18 @@ def build_manufacturing_stress_service(
                 frequency="MS",
             ),
         )
+
+    service.register(
+        GSCPI_SERIES_ID,
+        StaticFrameAdapter(gscpi),
+        SeriesMetadata(
+            series_id=GSCPI_SERIES_ID,
+            description="New York Fed Global Supply Chain Pressure Index",
+            source="Federal Reserve Bank of New York (GSCPI)",
+            units="Standard deviations from historical average",
+            frequency="MS",
+        ),
+    )
 
     service.register(
         STRESS_SERIES_ID,
@@ -207,6 +244,7 @@ def build_manufacturing_stress_service(
 
 __all__ = [
     "DEFAULT_FRED_CACHE_DIR",
+    "DEFAULT_GSCPI_CACHE_PATH",
     "DEFAULT_YAHOO_CACHE_DIR",
     "FED_FUNDS_FRED_ID",
     "FEDFUNDS_FRED_ID",

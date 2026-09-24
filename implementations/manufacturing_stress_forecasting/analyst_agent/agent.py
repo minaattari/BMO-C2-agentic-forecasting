@@ -9,12 +9,14 @@ import pandas as pd
 from aieng.forecasting.data.context import ForecastContext
 from aieng.forecasting.evaluation.task import ForecastingTask
 from aieng.forecasting.methods.agentic import (
+    AdkTextRunnerConfig,
     AgentPredictor,
     DiscreteAgentForecastOutput,
     build_adk_agent,
 )
 from aieng.forecasting.methods.agentic.agent_factory import AgentConfig
 from aieng.forecasting.models import LITE_MODEL
+from manufacturing_stress_forecasting.analyst_agent.json_runner import ManufacturingStressJsonRunner
 from manufacturing_stress_forecasting.data import IPMAN_SERIES_ID
 from manufacturing_stress_forecasting.features import (
     FEATURE_SERIES_IDS,
@@ -47,7 +49,9 @@ def _build_instruction() -> str:
         "7. Use `direction_bias='down'` when signals point toward manufacturing stress, `up` when they point "
         "away from stress, and `neutral` when mixed.\n\n"
         "## Output\n\n"
-        "Return exactly one JSON object matching this structure, with no markdown fence or preamble:\n\n" + schema
+        "Return exactly one valid JSON object matching this structure, with no markdown fence or preamble. "
+        "Use double quotes around every key and string value. Never return a Python dictionary or use "
+        "single quotes:\n\n" + schema
     )
 
 
@@ -150,7 +154,7 @@ def build_manufacturing_stress_agent_config(model: str = LITE_MODEL) -> AgentCon
         name="manufacturing_stress_analyst",
         model=model,
         instruction=_build_instruction(),
-        temperature=0.1,
+        temperature=0.0,
         seed=42,
         max_output_tokens=384,
     )
@@ -161,11 +165,23 @@ def build_manufacturing_stress_agent_predictor(
     *,
     anonymize_dates: bool = False,
 ) -> AgentPredictor:
-    """Wrap the analyst in the standard binary AgentPredictor contract."""
+    """Wrap the analyst in the standard contract with local JSON normalization."""
+    resolved_config = config or build_manufacturing_stress_agent_config()
+    agent = build_adk_agent(resolved_config, output_schema=DiscreteAgentForecastOutput)
+    runner = ManufacturingStressJsonRunner(
+        agent,
+        config=AdkTextRunnerConfig(
+            app_name="manufacturing_stress_predictor",
+            default_user_id="forecasting_agent",
+            fresh_session_per_message=True,
+        ),
+    )
     return AgentPredictor(
-        agent_config=config or build_manufacturing_stress_agent_config(),
+        agent_config=resolved_config,
         prompt_builder=ManufacturingStressPromptBuilder(anonymize_dates=anonymize_dates),
         output_schema=DiscreteAgentForecastOutput,
+        enable_langfuse_tracing=False,
+        runner=runner,
     )
 
 

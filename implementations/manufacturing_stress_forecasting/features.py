@@ -25,6 +25,7 @@ SPY_RETURN_3M_SERIES_ID = "SPY_RETURN_3M"
 SPY_RETURN_12M_SERIES_ID = "SPY_RETURN_12M"
 XLI_RETURN_3M_SERIES_ID = "XLI_RETURN_3M"
 XLI_RETURN_12M_SERIES_ID = "XLI_RETURN_12M"
+GSCPI_SERIES_ID = "global_supply_chain_pressure_index"
 
 FEATURE_PERIODS: dict[str, int] = {
     IPMAN_CHANGE_1M_SERIES_ID: 1,
@@ -47,6 +48,8 @@ MACRO_FEATURE_SERIES_IDS: tuple[str, ...] = (
     XLI_RETURN_12M_SERIES_ID,
 )
 FEATURE_SERIES_IDS: tuple[str, ...] = IPMAN_FEATURE_SERIES_IDS + MACRO_FEATURE_SERIES_IDS
+# GSCPI remains registered for controlled experiments but is excluded here.
+STATISTICAL_FEATURE_SERIES_IDS: tuple[str, ...] = FEATURE_SERIES_IDS
 
 
 def apply_conservative_monthly_release_lag(frame: pd.DataFrame, months: int = 1) -> pd.DataFrame:
@@ -115,6 +118,7 @@ def build_macro_feature_frames(
     calendar month. This keeps the monthly feature panel small while preserving
     an honest ``released_at`` cutoff.
     """
+
     def monthly_level(frame: pd.DataFrame) -> pd.DataFrame:
         value = canonical_three_col(frame)
         value["released_at"] = value["timestamp"] + pd.offsets.BDay(1)
@@ -190,11 +194,13 @@ __all__ = [
     "FEDFUNDS_SERIES_ID",
     "FEATURE_PERIODS",
     "FEATURE_SERIES_IDS",
+    "GSCPI_SERIES_ID",
     "IPMAN_FEATURE_SERIES_IDS",
     "IPMAN_CHANGE_1M_SERIES_ID",
     "IPMAN_CHANGE_3M_SERIES_ID",
     "IPMAN_CHANGE_6M_SERIES_ID",
     "MACRO_FEATURE_SERIES_IDS",
+    "STATISTICAL_FEATURE_SERIES_IDS",
     "YC_SPREAD_SERIES_ID",
     "CPIAUCSL_SERIES_ID",
     "CPI_YOY_SERIES_ID",
