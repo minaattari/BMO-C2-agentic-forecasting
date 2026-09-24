@@ -1,15 +1,16 @@
-# Manufacturing stress forecasting — IPMAN and GSCPI MVP
+# Manufacturing stress forecasting — IPMAN and macro MVP
 
 This implementation asks one Track 1 question:
 
 > Given information available at a monthly forecast origin, what is the
 > probability that U.S. manufacturing will be under stress three months later?
 
-The deterministic models use six explanatory variables: trailing 1-, 3-, and
-6-month IPMAN changes, the effective federal funds rate, the 10-year minus
-2-year Treasury yield spread, and the New York Fed Global Supply Chain
-Pressure Index (GSCPI). The small panel keeps the multivariate experiment
-interpretable.
+The deterministic models currently use five explanatory variables: trailing
+1-, 3-, and 6-month IPMAN changes, the effective federal funds rate, and the
+10-year minus 2-year Treasury yield spread. GSCPI remains registered in the
+data service for experimentation but is excluded from
+`STATISTICAL_FEATURE_SERIES_IDS`, so it is not supplied to logistic regression
+or XGBoost in the current configuration.
 
 ## Target
 
@@ -25,13 +26,11 @@ That distinction makes this forecasting rather than current-state detection.
 
 - `HistoricalFrequencyPredictor`: the visible historical stress rate.
 - `ManufacturingStressLogisticPredictor`: fit-at-origin logistic regression on
-  the six IPMAN, rate, and supply-chain variables.
+  the five active IPMAN/rate variables.
 - `ManufacturingStressXGBoostPredictor`: a small fit-at-origin gradient-boosted
-  tree classifier using the same six variables and release-lagged training rows.
-- `manufacturing_stress_analyst`: a structured LLM predictor that remains on
-  the original five IPMAN/rate signals plus recent IPMAN history and historical
-  base rates; GSCPI is added only to logistic regression and XGBoost for this
-  controlled comparison.
+  tree classifier using the same five variables and release-lagged training rows.
+- `manufacturing_stress_analyst`: a structured LLM predictor receiving the five
+  IPMAN/rate signals plus recent IPMAN history and historical base rates.
 
 All predictors return `BinaryForecast` probabilities; backtested predictors are scored with Brier score.
 
@@ -52,13 +51,22 @@ point-in-time vintages and can include later revisions. The standard FRED API
 also does not provide full point-in-time vintages. A production study should
 retain each GSCPI release and use ALFRED vintages for the FRED series.
 
+GSCPI is currently loaded and registered but is not an active predictor input.
+Add it back only as a controlled challenger and compare five- and six-variable
+models over identical dates.
+
 ## Run
 
-The primary interactive entry point is
+The general interactive entry point is
 [`manufacturing_stress_workbench.ipynb`](manufacturing_stress_workbench.ipynb).
 Open it in VS Code or Jupyter and use its configuration cell to refresh FRED
 data, run the deterministic smoke test, and explicitly opt in to the cached
 LLMP backtest without using the terminal.
+
+The dedicated
+[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
+runs the controlled logistic/XGBoost parameter sweep one cell at a time without
+requiring the CLI.
 
 From the repository root, put a personal FRED key in `.env` or export it:
 
@@ -84,24 +92,64 @@ isolation.
 
 ### Controlled deterministic parameter sweep
 
-Use the tuning stage to compare three logistic regularization values and four
-small XGBoost configurations over 2000–2017:
+`run_parameter_smoke.py` separates model selection from final confirmation:
 
-    uv run --directory implementations python -m manufacturing_stress_forecasting.run_parameter_smoke
+- `tune` compares three logistic regularization values and four small XGBoost
+  configurations over 2000–2017.
+- `confirm` evaluates only the selected tuning winner over the fixed 2018–2024
+  window.
+- `stride=3` evaluates every third month and is the default. `stride=1` is a
+  slower every-month diagnostic. Use the same stride for both stages.
+
+Run the tuning stage from the repository root:
+
+```bash
+uv run --directory implementations \
+  python -m manufacturing_stress_forecasting.run_parameter_smoke
+```
 
 The table reports mean Brier score, the gap from historical frequency, and
-Brier skill. The tuning stage prints the best non-baseline candidate and the
-exact confirmation command. Confirm only that selected candidate on the fixed
-2018–2024 window, for example:
+Brier skill. Lower Brier is better, a negative `delta_vs_baseline` is better,
+and positive Brier skill means the candidate beat historical frequency.
 
-    uv run --directory implementations python -m manufacturing_stress_forecasting.run_parameter_smoke \
-      --stage confirm --candidate logistic_c_0_1
+The tuning stage prints the best non-baseline candidate and its exact
+confirmation command. Confirm only that selected candidate, for example:
 
-Pass --stride 1 to either stage for an every-month diagnostic; the default
-stride is 3. Use the same stride for tuning and confirmation. This script does
-not use caches or make LLM calls. Keeping selection and confirmation separate
-reduces the risk of choosing parameters that merely fit the confirmation
-period.
+```bash
+uv run --directory implementations \
+  python -m manufacturing_stress_forecasting.run_parameter_smoke \
+  --stage confirm --candidate logistic_c_0_1 --stride 3
+```
+
+For an every-month tuning diagnostic:
+
+```bash
+uv run --directory implementations \
+  python -m manufacturing_stress_forecasting.run_parameter_smoke \
+  --stage tune --stride 1
+```
+
+To run the same workflow in Jupyter, open
+[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
+and run it from top to bottom. Its controls are:
+
+```python
+STAGE = "tune"          # change to "confirm" after selecting a winner
+CANDIDATE = None        # set to the printed winner for confirmation
+BACKTEST_STRIDE = 3     # use the same value for tune and confirm
+REFRESH_INPUT_DATA = False
+RUN_SWEEP = True
+```
+
+After tuning, copy the printed winning candidate into `CANDIDATE`, change
+`STAGE` to `"confirm"`, and rerun the notebook. Do not choose a candidate after
+examining the confirmation window.
+
+The script and notebook read the local input-data caches but do not use
+prediction-result caches or make LLM calls. Keeping selection and confirmation
+separate reduces the risk of choosing parameters that merely fit the
+confirmation period.
+
 Run the token-limited LLMP backtest explicitly:
 
 ```bash
@@ -142,7 +190,7 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 ## Next steps
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
-2. Compare the six-variable scores with the five-variable results to measure
-   whether GSCPI improves out-of-sample Brier score.
+2. Compare a separate six-variable GSCPI challenger with the active
+   five-variable models over identical training and evaluation dates.
 3. Compare the cached agent backtest against the deterministic baselines only
   after checking scored and skipped origin counts.
