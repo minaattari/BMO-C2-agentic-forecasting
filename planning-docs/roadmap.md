@@ -19,8 +19,8 @@ Output modality and method family are independent: a time-series task can often 
 - `implementations/<use-case>/` owns notebooks, task-specific configuration, prompts, and co-located YAML specs (one `specs/` directory per use case).
 - Darts is the primary numerical forecasting library.
 - Pydantic structured outputs and strong, mypy-clean typing are the default for core interfaces.
-- StatCan, FRED, yfinance, and the New York Fed's GSCPI download are the
-  reference data sources currently used by implementations.
+- StatCan, FRED, and yfinance are the reference data sources currently
+  used by implementations.
 - Code, notebooks, specs, and documentation stay aligned; READMEs are part of the product.
 - Add methods incrementally — give each reference implementation one strong, runnable baseline before adding a method zoo.
 

@@ -8,14 +8,10 @@ This implementation asks one Track 1 question:
 The feature service provides 15 active variables: trailing 1-, 3-, and
 6-month IPMAN changes plus the requested FRED and Yahoo Finance fields:
 `FEDFUNDS`, `YC_SPREAD`, `CPIAUCSL`, `CPI_YOY`, `UNRATE`, `ICSA`, `VIXCLS`,
-`HY_SPREAD`, and 3- and 12-month returns for both `SPY` and `XLI`. FRED
+`CREDIT_SPREAD` (Moody's Baa corporate yield minus the 10-year Treasury yield,
+FRED `BAA10Y`), and 3- and 12-month returns for both `SPY` and `XLI`. FRED
 levels are collapsed to monthly observations, derived fields use the documented
 source series, and Yahoo returns use monthly adjusted-close prices.
-
-The New York Fed GSCPI is also loaded and registered for controlled
-experiments, but it is deliberately excluded from
-`STATISTICAL_FEATURE_SERIES_IDS`. Logistic regression and XGBoost therefore
-use the 15 active IPMAN, macroeconomic, and market variables without GSCPI.
 
 ## Target
 
@@ -46,22 +42,11 @@ in isolation, because this small monthly dataset can overfit flexible models.
 `YFinanceDailyAdapter` caches `SPY` and `XLI` under `data/yfinance/`.
 Yahoo refreshes request history from 1998 onward explicitly so the provider's
 default recent-history window cannot replace the long-term cache.
-`NewYorkFedGSCPIAdapter` downloads the official GSCPI vintage table without an
-API key and caches it under `data/new_york_fed/gscpi_interactive_data.csv`.
 IPMAN is conservatively treated as available one month after its reference
 month. Daily rate observations are treated as available on the next business
-day and collapsed to their final monthly observation. GSCPI is treated as
-available on the fourth U.S. federal business day of the following month.
-
-The GSCPI adapter uses the latest column in the New York Fed's revision table.
-Consequently, its historical values are release-lagged but are not true
-point-in-time vintages and can include later revisions. The standard FRED API
-also does not provide full point-in-time vintages. A production study should
-retain each GSCPI release and use ALFRED vintages for the FRED series.
-
-GSCPI is currently loaded and registered but is not an active predictor input.
-Add it back only as a controlled challenger and compare models with and without
-GSCPI over identical dates.
+day and collapsed to their final monthly observation. The standard FRED API
+does not provide full point-in-time vintages, so historical observations may
+contain later revisions; a production study should use ALFRED vintages.
 
 ## Run
 
@@ -82,7 +67,7 @@ From the repository root, put a personal FRED key in `.env` or export it:
 export FRED_API_KEY="..."
 ```
 
-Populate the FRED, Yahoo Finance, and GSCPI caches and inspect the registered series:
+Populate the FRED and Yahoo Finance caches and inspect the registered series:
 
 ```bash
 uv run python scripts/fetch_manufacturing_stress.py
@@ -199,7 +184,5 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 
 1. Plot IPMAN and the derived stress months; confirm or revise the 2% threshold.
 2. Compare the expanded macro-panel score with the earlier IPMAN-only result.
-3. Compare a separate GSCPI challenger with the active statistical models over
-   identical training and evaluation dates.
-4. Compare the cached agent backtest against the deterministic baselines only
+3. Compare the cached agent backtest against the deterministic baselines only
    after checking scored and skipped origin counts.

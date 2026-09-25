@@ -10,7 +10,7 @@ from aieng.forecasting.data.context import ForecastContext
 from aieng.forecasting.evaluation.prediction import BinaryForecast, Prediction
 from aieng.forecasting.evaluation.predictor import Predictor
 from aieng.forecasting.evaluation.task import ForecastingTask
-from manufacturing_stress_forecasting.features import STATISTICAL_FEATURE_SERIES_IDS, build_feature_snapshot
+from manufacturing_stress_forecasting.features import FEATURE_SERIES_IDS, build_feature_snapshot
 
 
 class ManufacturingStressLogisticPredictor(Predictor):
@@ -40,11 +40,11 @@ class ManufacturingStressLogisticPredictor(Predictor):
 
         as_of = pd.Timestamp(context.as_of)
         target = context.get_series(task.target_series_id)
-        feature_frames = {series_id: context.get_series(series_id) for series_id in STATISTICAL_FEATURE_SERIES_IDS}
+        feature_frames = {series_id: context.get_series(series_id) for series_id in FEATURE_SERIES_IDS}
         lead = pd.tseries.frequencies.to_offset(task.frequency) * task.horizons[0]
 
         rows, outcomes = self._training_data(target, feature_frames, lead)
-        current = build_feature_snapshot(as_of, feature_frames, series_ids=STATISTICAL_FEATURE_SERIES_IDS)
+        current = build_feature_snapshot(as_of, feature_frames, series_ids=FEATURE_SERIES_IDS)
         payload, model_metadata = self._fit_and_predict(rows, outcomes, current)
 
         return [
@@ -72,11 +72,11 @@ class ManufacturingStressLogisticPredictor(Predictor):
             snapshot = build_feature_snapshot(
                 past_origin,
                 feature_frames,
-                series_ids=STATISTICAL_FEATURE_SERIES_IDS,
+                series_ids=FEATURE_SERIES_IDS,
             )
             if snapshot is None:
                 continue
-            rows.append([snapshot[series_id] for series_id in STATISTICAL_FEATURE_SERIES_IDS])
+            rows.append([snapshot[series_id] for series_id in FEATURE_SERIES_IDS])
             outcomes.append(float(outcome))
         return rows, outcomes
 
@@ -98,17 +98,13 @@ class ManufacturingStressLogisticPredictor(Predictor):
 
         model = make_pipeline(StandardScaler(), LogisticRegression(C=self._c, max_iter=1000))
         model.fit(np.asarray(rows), np.asarray(outcomes))
-        current_row = np.asarray([[current[series_id] for series_id in STATISTICAL_FEATURE_SERIES_IDS]])
+        current_row = np.asarray([[current[series_id] for series_id in FEATURE_SERIES_IDS]])
         probability = float(model.predict_proba(current_row)[0, 1])
         coefficients = model.named_steps["logisticregression"].coef_[0]
         return BinaryForecast(probability=probability), {
             "model": "logistic_regression",
-            "features": dict(
-                zip(STATISTICAL_FEATURE_SERIES_IDS, (float(value) for value in current_row[0]), strict=True)
-            ),
-            "coefficients": dict(
-                zip(STATISTICAL_FEATURE_SERIES_IDS, (float(value) for value in coefficients), strict=True)
-            ),
+            "features": dict(zip(FEATURE_SERIES_IDS, (float(value) for value in current_row[0]), strict=True)),
+            "coefficients": dict(zip(FEATURE_SERIES_IDS, (float(value) for value in coefficients), strict=True)),
         }
 
 

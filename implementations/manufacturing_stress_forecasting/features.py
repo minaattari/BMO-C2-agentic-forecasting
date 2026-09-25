@@ -20,12 +20,11 @@ CPI_YOY_SERIES_ID = "CPI_YOY"
 UNRATE_SERIES_ID = "UNRATE"
 ICSA_SERIES_ID = "ICSA"
 VIXCLS_SERIES_ID = "VIXCLS"
-HY_SPREAD_SERIES_ID = "HY_SPREAD"
+CREDIT_SPREAD_SERIES_ID = "CREDIT_SPREAD"
 SPY_RETURN_3M_SERIES_ID = "SPY_RETURN_3M"
 SPY_RETURN_12M_SERIES_ID = "SPY_RETURN_12M"
 XLI_RETURN_3M_SERIES_ID = "XLI_RETURN_3M"
 XLI_RETURN_12M_SERIES_ID = "XLI_RETURN_12M"
-GSCPI_SERIES_ID = "global_supply_chain_pressure_index"
 
 FEATURE_PERIODS: dict[str, int] = {
     IPMAN_CHANGE_1M_SERIES_ID: 1,
@@ -41,15 +40,13 @@ MACRO_FEATURE_SERIES_IDS: tuple[str, ...] = (
     UNRATE_SERIES_ID,
     ICSA_SERIES_ID,
     VIXCLS_SERIES_ID,
-    HY_SPREAD_SERIES_ID,
+    CREDIT_SPREAD_SERIES_ID,
     SPY_RETURN_3M_SERIES_ID,
     SPY_RETURN_12M_SERIES_ID,
     XLI_RETURN_3M_SERIES_ID,
     XLI_RETURN_12M_SERIES_ID,
 )
 FEATURE_SERIES_IDS: tuple[str, ...] = IPMAN_FEATURE_SERIES_IDS + MACRO_FEATURE_SERIES_IDS
-# GSCPI remains registered for controlled experiments but is excluded here.
-STATISTICAL_FEATURE_SERIES_IDS: tuple[str, ...] = FEATURE_SERIES_IDS
 
 
 def apply_conservative_monthly_release_lag(frame: pd.DataFrame, months: int = 1) -> pd.DataFrame:
@@ -107,7 +104,7 @@ def build_macro_feature_frames(
     unemployment: pd.DataFrame | None = None,
     initial_claims: pd.DataFrame | None = None,
     vix: pd.DataFrame | None = None,
-    high_yield_spread: pd.DataFrame | None = None,
+    credit_spread: pd.DataFrame | None = None,
     spy_prices: pd.DataFrame | None = None,
     xli_prices: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
@@ -141,7 +138,7 @@ def build_macro_feature_frames(
     }
     if all(
         frame is not None
-        for frame in (cpi, unemployment, initial_claims, vix, high_yield_spread, spy_prices, xli_prices)
+        for frame in (cpi, unemployment, initial_claims, vix, credit_spread, spy_prices, xli_prices)
     ):
         cpi_monthly = monthly_level(cpi)
         cpi_yoy = cpi_monthly.copy()
@@ -156,7 +153,7 @@ def build_macro_feature_frames(
                 UNRATE_SERIES_ID: monthly_level(unemployment),
                 ICSA_SERIES_ID: monthly_level(initial_claims),
                 VIXCLS_SERIES_ID: monthly_level(vix),
-                HY_SPREAD_SERIES_ID: monthly_level(high_yield_spread),
+                CREDIT_SPREAD_SERIES_ID: monthly_level(credit_spread),
                 SPY_RETURN_3M_SERIES_ID: monthly_return_feature(spy_prices, periods=3),
                 SPY_RETURN_12M_SERIES_ID: monthly_return_feature(spy_prices, periods=12),
                 XLI_RETURN_3M_SERIES_ID: monthly_return_feature(xli_prices, periods=3),
@@ -194,20 +191,18 @@ __all__ = [
     "FEDFUNDS_SERIES_ID",
     "FEATURE_PERIODS",
     "FEATURE_SERIES_IDS",
-    "GSCPI_SERIES_ID",
     "IPMAN_FEATURE_SERIES_IDS",
     "IPMAN_CHANGE_1M_SERIES_ID",
     "IPMAN_CHANGE_3M_SERIES_ID",
     "IPMAN_CHANGE_6M_SERIES_ID",
     "MACRO_FEATURE_SERIES_IDS",
-    "STATISTICAL_FEATURE_SERIES_IDS",
     "YC_SPREAD_SERIES_ID",
     "CPIAUCSL_SERIES_ID",
     "CPI_YOY_SERIES_ID",
     "UNRATE_SERIES_ID",
     "ICSA_SERIES_ID",
     "VIXCLS_SERIES_ID",
-    "HY_SPREAD_SERIES_ID",
+    "CREDIT_SPREAD_SERIES_ID",
     "SPY_RETURN_3M_SERIES_ID",
     "SPY_RETURN_12M_SERIES_ID",
     "XLI_RETURN_3M_SERIES_ID",
