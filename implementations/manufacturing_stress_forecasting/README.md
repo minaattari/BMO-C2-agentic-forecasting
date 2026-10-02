@@ -57,9 +57,10 @@ data, run the deterministic smoke test, and explicitly opt in to the cached
 LLMP backtest without using the terminal.
 
 The dedicated
-[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
-runs the controlled logistic/XGBoost parameter sweep one cell at a time without
-requiring the CLI.
+[`manufacturing_stress_parameter_sweep_workbench_2.ipynb`](manufacturing_stress_parameter_sweep_workbench_2.ipynb)
+runs the controlled logistic/XGBoost tuning workflow across chronological
+validation folds without requiring the CLI. The original parameter-sweep
+workbench is unchanged.
 
 From the repository root, put a personal FRED key in `.env` or export it:
 
@@ -85,12 +86,19 @@ isolation.
 
 ### Controlled deterministic parameter sweep
 
-`run_parameter_smoke.py` separates model selection from final confirmation:
+`run_parameter_smoke.py` compares candidates across three chronological tuning
+folds within 2000–2017:
 
-- `tune` compares three logistic regularization values and four small XGBoost
-  configurations over 2000–2017.
-- `confirm` evaluates only the selected tuning winner over the fixed 2018–2024
-  window.
+- `tune` compares six logistic regularization values and four small XGBoost
+  configurations against historical frequency in 2000–2005, 2006–2011, and
+  2012–2017 folds. Training remains expanding and cutoff-scoped at each origin.
+- A candidate is suggested only if it beats historical frequency on pooled
+  Brier score, in at least two folds, and in an event-bearing fold. Fold tables
+  show scores, skipped origins, and resolved stress-event counts; per-origin
+  probabilities and outcomes are available in the notebook.
+- `confirm` evaluates only one selected candidate over the fixed 2018–2024
+  window. This window has already been inspected and is a historical diagnostic,
+  not an untouched holdout for selecting new parameters.
 - `stride=3` evaluates every third month and is the default. `stride=1` is a
   slower every-month diagnostic. Use the same stride for both stages.
 
@@ -101,12 +109,16 @@ uv run --directory implementations \
   python -m manufacturing_stress_forecasting.run_parameter_smoke
 ```
 
-The table reports mean Brier score, the gap from historical frequency, and
-Brier skill. Lower Brier is better, a negative `delta_vs_baseline` is better,
 and positive Brier skill means the candidate beat historical frequency.
+The tuning output reports fold-level and pooled mean Brier score, the gap from
+historical frequency, Brier skill, and event counts. Lower Brier is better, a
+negative `delta_vs_baseline` is better, and positive Brier skill means the
+candidate beat historical frequency. If events appear in fewer than two folds,
+any suggested candidate is explicitly marked provisional.
 
-The tuning stage prints the best non-baseline candidate and its exact
-confirmation command. Confirm only that selected candidate, for example:
+The tuning stage prints a stability-qualified candidate when one meets the
+selection rule. The following command reproduces the historical diagnostic; it
+does not create a fresh holdout result:
 
 ```bash
 uv run --directory implementations \
@@ -122,8 +134,8 @@ uv run --directory implementations \
   --stage tune --stride 1
 ```
 
-To run the same workflow in Jupyter, open
-[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
+To run the fold-based workflow in Jupyter, open
+[`manufacturing_stress_parameter_sweep_workbench_2.ipynb`](manufacturing_stress_parameter_sweep_workbench_2.ipynb)
 and run it from top to bottom. Its controls are:
 
 ```python
@@ -132,16 +144,20 @@ CANDIDATE = None        # set to the printed winner for confirmation
 BACKTEST_STRIDE = 3     # use the same value for tune and confirm
 REFRESH_INPUT_DATA = False
 RUN_SWEEP = True
+SHOW_ORIGIN_DETAILS = False
 ```
 
-After tuning, copy the printed winning candidate into `CANDIDATE`, change
-`STAGE` to `"confirm"`, and rerun the notebook. Do not choose a candidate after
-examining the confirmation window.
+The notebook reports fold and pooled tables. Set `SHOW_ORIGIN_DETAILS = True`
+to inspect each scored probability and resolved label. A candidate can pass the
+rule while remaining provisional when stress events appear in only one fold.
+Because the 2018–2024 window has already been inspected, do not retune from its
+results; a clean next confirmation requires future or prospectively recorded
+outcomes.
 
 The script and notebook read the local input-data caches but do not use
-prediction-result caches or make LLM calls. Keeping selection and confirmation
-separate reduces the risk of choosing parameters that merely fit the
-confirmation period.
+prediction-result caches or make LLM calls. Keeping tuning within 2000–2017
+and reporting regime-level stability reduces the risk of choosing parameters
+that fit only one part of the development period.
 
 Run the token-limited LLMP backtest explicitly:
 
