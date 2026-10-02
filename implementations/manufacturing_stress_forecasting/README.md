@@ -62,6 +62,25 @@ runs the controlled logistic/XGBoost tuning workflow across chronological
 validation folds without requiring the CLI. The original parameter-sweep
 workbench is unchanged.
 
+The [`manufacturing_stress_workbench_2.ipynb`](manufacturing_stress_workbench_2.ipynb)
+is a self-contained comparison notebook for the fixed 2018–2024 smoke window.
+It compares historical frequency, logistic regression with `C=0.001`, XGBoost
+with 50 trees, depth 2, and learning rate 0.03, plus the deterministic hybrid
+anchor that averages the two numerical probabilities. It reports mean Brier
+score, Brier skill, per-origin outcomes, and calibration diagnostics. Analyst
+and hybrid shadow-agent evaluations are disabled by default and require an
+explicit opt-in because they may make LLM calls. The window is a historical
+diagnostic rather than an untouched future holdout.
+
+The additive
+[`manufacturing_stress_hybrid_workbench.ipynb`](manufacturing_stress_hybrid_workbench.ipynb)
+is the interface for the initial hybrid expansion. It defaults to a dry run,
+uses the full 15-feature set and the fixed candidates
+`logistic_c_0_001` and `xgb_50_depth2_lr0_03`, and keeps the numerical anchor
+as the official probability. Set `RUN_AGENT_CALL = True` explicitly to make
+one LLM call through the existing ADK/Vector-proxy runner; the proposed agent
+adjustment is retained as shadow metadata and bounded in Python.
+
 From the repository root, put a personal FRED key in `.env` or export it:
 
 ```bash
@@ -79,6 +98,17 @@ Run the deterministic small backtest:
 ```bash
 uv run --directory implementations python -m manufacturing_stress_forecasting.run_smoke
 ```
+
+Run the hybrid dry-run smoke interface:
+
+```bash
+uv run --directory implementations \
+  python -m manufacturing_stress_forecasting.smoke_hybrid_agent
+```
+
+Use `--run-agent` only when the Vector-proxy environment is configured and an
+explicit LLM call is intended. The hybrid smoke path is additive and does not
+change existing predictors, agents, runners, or cached artifacts.
 
 The output prints one mean Brier score per predictor; lower is better. The
 logistic model should be compared against historical frequency, not judged in

@@ -6,6 +6,35 @@ Expand the manufacturing-stress forecasting workflow from a quantitative-only an
 
 The first expansion must be auditable, reproducible, and suitable for prospective evaluation. It must not allow the LLM to replace the statistical models before its proposed adjustments have been evaluated.
 
+## Compatibility requirement
+
+This expansion is additive. It must preserve every existing manufacturing-stress capability unless a deliberate, separately documented breaking change is approved.
+
+The following existing behavior must continue to work unchanged:
+
+- The current parameter-sweep notebook and its `tune` and `confirm` stages.
+- The full 15-feature statistical predictors.
+- The historical-frequency baseline.
+- The existing logistic and XGBoost predictor APIs and predictor IDs.
+- The current `BacktestSpec` files and historical backtest runners.
+- Existing cached prediction and backtest artifacts.
+- The quantitative-only manufacturing-stress agent.
+- `run_agent_prediction.py` and `run_agent_backtest.py`.
+- Existing smoke tests, notebooks, imports, and command-line interfaces.
+
+Implementation rules:
+
+1. Add new modules and entry points rather than replacing existing ones.
+2. Preserve public function signatures and existing defaults.
+3. Keep the current quantitative-only agent available as a separate predictor.
+4. Do not change the meaning of `manufacturing_stress`, existing specs, or existing predictor IDs.
+5. Do not invalidate existing caches. Version new hybrid artifacts separately.
+6. Keep hybrid configuration opt-in; existing workflows must not activate it automatically.
+7. If a shared helper must change, add backward-compatible behavior and regression tests before using it from the hybrid path.
+8. Do not change existing notebook outputs or execution semantics merely to support the hybrid experiment.
+
+The hybrid system should have distinct names, configuration, cache namespaces, and predictor IDs. A user must be able to run the old and new workflows side by side and compare their outputs.
+
 ## Frozen initial scope
 
 ### Target
@@ -509,6 +538,9 @@ Reuse existing project abstractions where possible:
 
 The initial expansion is complete when:
 
+- Existing workflows pass their pre-expansion tests and smoke checks without modification to their expected behavior.
+- Existing predictor IDs, cache formats, command-line entry points, and notebook stages remain compatible.
+- The hybrid path is opt-in and can be disabled without affecting the current quantitative-only path.
 - The target is explicitly fixed at the 2% three-month IPMAN definition.
 - All 15 features are used by both statistical candidates.
 - `logistic_c_0_001` and `xgb_50_depth2_lr0_03` are evaluated on identical origins.
@@ -521,3 +553,15 @@ The initial expansion is complete when:
 - Historical comparisons use identical scored origins.
 - Prospective recording can begin without changing the frozen configuration.
 - No adaptive memory or unrestricted web retrieval is required for the first release.
+
+## Compatibility validation checklist
+
+Before merging the expansion, run:
+
+1. Existing unit and integration tests.
+2. The current statistical parameter-sweep setup with `RUN_SWEEP = False`.
+3. The current statistical backtest runner using its existing spec and cache behavior.
+4. The current quantitative-only agent smoke or prediction command.
+5. The new hybrid smoke test.
+6. A comparison proving that old and hybrid predictor IDs produce separate artifacts.
+7. A diff review confirming that no existing spec, cache, or public entry point was overwritten.
