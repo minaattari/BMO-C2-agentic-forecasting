@@ -68,7 +68,7 @@ It compares historical frequency, logistic regression with `C=0.001`, XGBoost
 with 50 trees, depth 2, and learning rate 0.03, plus the deterministic hybrid
 anchor that averages the two numerical probabilities. It reports mean Brier
 score, Brier skill, per-origin outcomes, and calibration diagnostics. Analyst
-and hybrid shadow-agent evaluations are disabled by default and require an
+and hybrid-agent evaluations are disabled by default and require an
 explicit opt-in because they may make LLM calls. The window is a historical
 diagnostic rather than an untouched future holdout.
 
@@ -77,9 +77,14 @@ The additive
 is the interface for the initial hybrid expansion. It defaults to a dry run,
 uses the full 15-feature set and the fixed candidates
 `logistic_c_0_001` and `xgb_50_depth2_lr0_03`, and keeps the numerical anchor
-as the official probability. Set `RUN_AGENT_CALL = True` explicitly to make
-one LLM call through the existing ADK/Vector-proxy runner; the proposed agent
-adjustment is retained as shadow metadata and bounded in Python.
+as the starting point for the agent. Set `RUN_AGENT_CALL = True` explicitly to
+make one LLM call through the existing ADK/Vector-proxy runner; the bounded
+agent adjustment is used as the forecast probability, with the anchor and
+proposal retained in metadata.
+The structured response includes a rationale limited to 40 words, the main
+supporting and countervailing evidence, and a direction (`up`, `down`, or
+`neutral`). These fields are retained with the anchor, agent proposal, applied
+adjustment, and adjusted forecast probability in the notebook output.
 
 From the repository root, put a personal FRED key in `.env` or export it:
 

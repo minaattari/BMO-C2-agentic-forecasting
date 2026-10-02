@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Expand the manufacturing-stress forecasting workflow from a quantitative-only analyst into a controlled hybrid forecasting system. The statistical models remain the numerical authority at first. The LLM receives the statistical results and cutoff-safe evidence, explains the situation, and proposes a bounded adjustment in shadow mode.
+Expand the manufacturing-stress forecasting workflow from a quantitative-only analyst into a controlled hybrid forecasting system. The statistical models provide a transparent numerical anchor. The LLM receives that anchor and cutoff-safe evidence, explains the situation, and proposes an adjustment that Python bounds before using it as the hybrid forecast probability.
 
-The first expansion must be auditable, reproducible, and suitable for prospective evaluation. It must not allow the LLM to replace the statistical models before its proposed adjustments have been evaluated.
+The expansion must be auditable, reproducible, and suitable for prospective evaluation. The adjusted forecast, numerical anchor, and agent proposal must remain separately recorded so the agent's incremental value can be evaluated.
 
 ## Compatibility requirement
 
@@ -102,16 +102,16 @@ cutoff-safe data context
                          |
               deterministic Python validation
                          |
-       official anchor + shadow hybrid probability
+      bounded agent-adjusted forecast probability
                          |
           persisted forecast and later outcome
 ```
 
 During the initial phase:
 
-- `official_probability` is the numerical anchor.
-- `shadow_probability` is the validated anchor plus the agent's proposed adjustment.
-- The shadow probability is measured but does not control the official forecast.
+- The numerical anchor is the starting probability supplied to the agent.
+- The agent's proposal is bounded by Python to the configured adjustment range.
+- The bounded adjusted probability is the hybrid agent's forecast; the anchor, proposal, and applied adjustment remain in metadata for analysis.
 
 ## Phase 0: Establish the frozen configuration
 
@@ -304,7 +304,7 @@ Validation must check:
 - Evidence dates are not later than `as_of`.
 - Target and horizon match the frozen configuration.
 - The adjustment is within the permitted range.
-- The authoritative shadow probability is calculated by Python.
+- The adjusted forecast probability is calculated by Python.
 
 Authoritative calculation:
 
@@ -313,14 +313,13 @@ validated_adjustment = max(
     -MAX_AGENT_ADJUSTMENT,
     min(agent_adjustment, MAX_AGENT_ADJUSTMENT),
 )
-shadow_probability = min(
+adjusted_probability = min(
     MAX_PROBABILITY,
     max(MIN_PROBABILITY, anchor_probability + validated_adjustment),
 )
-official_probability = anchor_probability
 ```
 
-If the output is malformed or violates the contract, record a validation failure and keep the official probability equal to the anchor.
+If the output is malformed or violates the contract, record a validation failure rather than silently falling back to the anchor forecast.
 
 ## Phase 5: Dedicated smoke test
 
@@ -355,8 +354,11 @@ The smoke test should print:
 - XGBoost probability
 - Anchor probability
 - Agent adjustment
-- Shadow probability
+- Adjusted forecast probability
 - Validation status
+- A rationale of at most 40 words
+- Main supporting and countervailing evidence
+- Overall direction (`up`, `down`, or `neutral`)
 
 ## Phase 6: Historical evaluation
 
@@ -369,7 +371,7 @@ Compare:
 - `xgb_50_depth2_lr0_03`
 - Numerical anchor
 - Existing quantitative-only agent
-- Hybrid agent shadow probability
+- Hybrid agent adjusted probability
 
 All comparisons must use identical:
 
@@ -446,9 +448,9 @@ Persist one immutable forecast record per forecast origin. Store enough informat
   "logistic_probability": 0.0,
   "xgboost_probability": 0.0,
   "anchor_probability": 0.0,
+  "agent_probability": 0.0,
   "agent_adjustment": 0.0,
-  "official_probability": 0.0,
-  "shadow_probability": 0.0,
+  "adjusted_probability": 0.0,
   "validation_status": "passed",
   "evidence": [],
   "rationale": "...",

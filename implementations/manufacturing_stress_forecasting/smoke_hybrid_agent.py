@@ -11,11 +11,12 @@ from aieng.forecasting.evaluation import BacktestSpec
 from dotenv import load_dotenv
 from manufacturing_stress_forecasting.data import build_manufacturing_stress_service
 from manufacturing_stress_forecasting.hybrid import (
-    HybridShadowPredictor,
+    HybridAgentPredictor,
     build_hybrid_agent_predictor,
     build_numerical_anchor,
     validate_agent_adjustment,
 )
+
 
 SPEC_PATH = Path(__file__).resolve().parent / "specs" / "manufacturing_stress_smoke.yaml"
 
@@ -55,10 +56,11 @@ def main() -> None:
         print("Agent call skipped. Use --run-agent to invoke the existing ADK/Vector path.")
         return
 
-    predictor = HybridShadowPredictor(build_hybrid_agent_predictor(anonymize_dates=False))
+    predictor = HybridAgentPredictor(build_hybrid_agent_predictor(anonymize_dates=False))
     prediction = predictor.predict(spec.task, context)[0]
-    print(f"Official probability: {prediction.payload.probability:.6f}")
-    print(f"Shadow probability: {prediction.metadata['shadow_probability']:.6f}")
+    print(f"Adjusted forecast probability: {prediction.payload.probability:.6f}")
+    print(f"Anchor probability: {prediction.metadata['anchor_probability']:.6f}")
+    print(f"Agent proposal: {prediction.metadata['agent_probability']:.6f}")
     print(f"Agent adjustment: {prediction.metadata['agent_adjustment']:.6f}")
     print(f"Validation: {prediction.metadata['validation_status']}")
 
