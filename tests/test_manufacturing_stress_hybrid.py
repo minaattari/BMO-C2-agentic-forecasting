@@ -2,8 +2,8 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from manufacturing_stress_forecasting import hybrid
-from manufacturing_stress_forecasting.hybrid import (
+from manufacturing_stress_forecasting.hybrid_agent import agent as hybrid
+from manufacturing_stress_forecasting.hybrid_agent import (
     HybridAgentPredictor,
     HybridManufacturingStressOutput,
     NumericalAnchor,
@@ -11,11 +11,11 @@ from manufacturing_stress_forecasting.hybrid import (
 )
 
 
-def test_numerical_anchor_averages_the_two_fixed_candidates() -> None:
+def test_numerical_anchor_uses_the_logistic_candidate() -> None:
     anchor = NumericalAnchor(logistic_probability=0.08, xgboost_probability=0.12)
 
-    assert anchor.probability == 0.1
-    assert anchor.as_dict()["anchor_method"] == "mean_logistic_xgboost"
+    assert anchor.probability == 0.08
+    assert anchor.as_dict()["anchor_method"] == "logistic_only"
 
 
 def test_agent_adjustment_is_clamped_and_becomes_the_forecast_probability() -> None:

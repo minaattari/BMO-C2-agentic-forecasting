@@ -101,6 +101,40 @@ CANDIDATES = (
             learning_rate=0.05,
         ),
     ),
+    Candidate(
+        "xgb_25_depth1_lr0_03",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=25,
+            max_depth=1,
+            learning_rate=0.03,
+        ),
+    ),
+    Candidate(
+        "xgb_50_depth1_lr0_03",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=50,
+            max_depth=1,
+            learning_rate=0.03,
+        ),
+    ),
+    Candidate(
+        "xgb_100_depth2_lr0_02",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=100,
+            max_depth=2,
+            learning_rate=0.02,
+        ),
+    ),
+    Candidate(
+        "xgb_50_depth2_lr0_03_minchild3_l2_5",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=50,
+            max_depth=2,
+            learning_rate=0.03,
+            min_child_weight=3.0,
+            reg_lambda=5.0,
+        ),
+    ),
 )
 
 

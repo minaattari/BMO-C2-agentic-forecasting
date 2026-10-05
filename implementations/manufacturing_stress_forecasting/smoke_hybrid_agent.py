@@ -10,7 +10,7 @@ import yaml
 from aieng.forecasting.evaluation import BacktestSpec
 from dotenv import load_dotenv
 from manufacturing_stress_forecasting.data import build_manufacturing_stress_service
-from manufacturing_stress_forecasting.hybrid import (
+from manufacturing_stress_forecasting.hybrid_agent import (
     HybridAgentPredictor,
     build_hybrid_agent_predictor,
     build_numerical_anchor,
