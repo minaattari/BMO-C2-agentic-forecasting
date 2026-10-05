@@ -2,13 +2,13 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from manufacturing_stress_forecasting.hybrid_agent import agent as hybrid
 from manufacturing_stress_forecasting.hybrid_agent import (
     HybridAgentPredictor,
     HybridManufacturingStressOutput,
     NumericalAnchor,
     validate_agent_adjustment,
 )
+from manufacturing_stress_forecasting.hybrid_agent import agent as hybrid
 
 
 def test_numerical_anchor_uses_the_logistic_candidate() -> None:
@@ -59,6 +59,21 @@ def test_hybrid_predictor_uses_the_bounded_adjustment_as_its_prediction(monkeypa
     assert prediction.metadata["agent_probability"] == 0.20
     assert prediction.metadata["adjusted_probability"] == 0.11
     assert prediction.metadata["agent_adjustment"] == 0.03
+
+
+def test_hybrid_predictor_supports_distinct_cache_identities() -> None:
+    class StubAgentPredictor:
+        pass
+
+    hybrid_predictor = HybridAgentPredictor(StubAgentPredictor())
+    adaptive_predictor = HybridAgentPredictor(
+        StubAgentPredictor(),
+        predictor_id="manufacturing_stress_adaptive_agent_v1",
+    )
+
+    assert hybrid_predictor.predictor_id == "manufacturing_stress_hybrid_agent_v2"
+    assert adaptive_predictor.predictor_id == "manufacturing_stress_adaptive_agent_v1"
+    assert hybrid_predictor.predictor_id != adaptive_predictor.predictor_id
 
 
 def test_hybrid_output_validates_rationale_and_preserves_evidence_metadata() -> None:

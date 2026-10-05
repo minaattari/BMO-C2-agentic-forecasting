@@ -229,12 +229,18 @@ def build_hybrid_agent_predictor(
 class HybridAgentPredictor(Predictor):
     """Use the bounded agent adjustment as the forecast and retain its evidence."""
 
-    def __init__(self, agent_predictor: AgentPredictor) -> None:
+    def __init__(
+        self,
+        agent_predictor: AgentPredictor,
+        *,
+        predictor_id: str = "manufacturing_stress_hybrid_agent_v2",
+    ) -> None:
         self._agent_predictor = agent_predictor
+        self._predictor_id = predictor_id
 
     @property
     def predictor_id(self) -> str:
-        return "manufacturing_stress_hybrid_agent_v2"
+        return self._predictor_id
 
     def predict(self, task: ForecastingTask, context: ForecastContext) -> list[Prediction]:
         anchor = build_numerical_anchor(task, context)

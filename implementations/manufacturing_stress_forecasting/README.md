@@ -76,6 +76,8 @@ stateful manufacturing adaptive agent as `adaptive_agent`; its strategy state
 is persisted under `adaptive_agent/skills/manufacturing-strategy/` and is
 governed by typed mutation tools. Both agent rows retain the anchor, proposed
 probability, applied adjustment, rationale, and evidence in metadata.
+The stateless hybrid and adaptive agent use distinct predictor/cache IDs, so
+the adaptive backtest cannot silently reuse the hybrid result.
 When Langfuse credentials are configured, adaptive runs emit tagged traces and
 each durable strategy mutation is also appended to the redacted
 `adaptive_agent/skills/manufacturing-strategy/.history/adaptation_audit.jsonl`
@@ -92,7 +94,25 @@ The [`manufacturing_stress_adaptive_model_comparison.ipynb`](manufacturing_stres
 is a separate controlled comparison of the adaptive agent with the lite and
 advanced models. It uses ordinary cached historical backtests, separate cache
 identities, and a frozen strategy with mutation disabled; the adaptive builder
-defaults to the lite model and accepts an explicit advanced-model opt-in.
+defaults to the lite model and accepts an explicit advanced-model opt-in. Its
+advanced path uses a 4096-token response cap (the lite path remains at 512),
+leaving room for the advanced model's internal reasoning and complete
+structured forecast. A supplied `AgentConfig` keeps its own token cap. Its
+configuration cell lets you choose `BACKTEST_STRIDE_MONTHS = 3` (the faster
+default, 28 origins) or `1` (monthly origins, 84 origins); this overrides the
+smoke spec's stride only for that notebook run. Both settings keep the
+three-month horizon, so monthly forecast targets overlap. The comparison is
+read-only and presents the two models' probabilities, risk directions,
+concise rationales, supporting evidence, and countervailing evidence side by
+side for each origin; no binary decision threshold is applied.
+The paired monthly result is summarized in the executive-ready
+[`reports/adaptive_compare/`](reports/adaptive_compare/) package, which includes
+the report, figures, exact plot-source CSVs, and a manifest. Rebuild it from
+saved backtest artifacts without making LLM calls with:
+
+```bash
+uv run python implementations/manufacturing_stress_forecasting/reports/adaptive_compare/build_report.py
+```
 
 The [`manufacturing_stress_protected_evaluation_workbench.ipynb`](manufacturing_stress_protected_evaluation_workbench.ipynb)
 is the limited held-out evaluation surface. It uses
@@ -104,7 +124,10 @@ The companion [`manufacturing_stress_adaptive_agent_workbench.ipynb`](manufactur
 is a frozen-by-default interface for inspecting the seeded strategy, optionally
 running one adaptive forecast, reviewing mutation audits, and generating the
 same executive-ready reports under `reports/adaptive_agent_workbench/`.
-The window is a historical diagnostic rather than an untouched future holdout.
+The adaptive agent uses the hybrid agent's complete structured-output
+instructions and explicitly submits all required response fields through
+`set_model_response`; the window is a historical diagnostic rather than an
+untouched future holdout.
 
 The additive
 [`manufacturing_stress_hybrid_workbench.ipynb`](manufacturing_stress_hybrid_workbench.ipynb)
