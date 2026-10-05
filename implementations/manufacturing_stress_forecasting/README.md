@@ -65,19 +65,54 @@ workbench is unchanged.
 The [`manufacturing_stress_workbench_2.ipynb`](manufacturing_stress_workbench_2.ipynb)
 is a self-contained comparison notebook for the fixed 2018–2024 smoke window.
 It compares historical frequency, logistic regression with `C=0.001`, XGBoost
-with 50 trees, depth 2, and learning rate 0.03, plus the deterministic hybrid
-anchor that averages the two numerical probabilities. It reports mean Brier
-score, Brier skill, per-origin outcomes, and calibration diagnostics. Analyst
-and hybrid-agent evaluations are disabled by default and require an
-explicit opt-in because they may make LLM calls. The window is a historical
-diagnostic rather than an untouched future holdout.
+with 50 trees, depth 2, learning rate 0.03, `min_child_weight=3`, and
+`reg_lambda=5`, plus the deterministic hybrid anchor based on logistic only. It reports mean Brier
+score, Brier skill, per-origin outcomes, and calibration diagnostics. Analyst,
+hybrid-agent, and adaptive-agent evaluations are disabled by default and
+require an explicit opt-in because they may make LLM calls. Set
+`RUN_HYBRID_AGENT = True` to compare the stateless bounded hybrid as
+`hybrid_agent_adjusted`. Set `RUN_ADAPTIVE_AGENT = True` to compare the
+stateful manufacturing adaptive agent as `adaptive_agent`; its strategy state
+is persisted under `adaptive_agent/skills/manufacturing-strategy/` and is
+governed by typed mutation tools. Both agent rows retain the anchor, proposed
+probability, applied adjustment, rationale, and evidence in metadata.
+When Langfuse credentials are configured, adaptive runs emit tagged traces and
+each durable strategy mutation is also appended to the redacted
+`adaptive_agent/skills/manufacturing-strategy/.history/adaptation_audit.jsonl`
+audit. Generate the executive-ready adaptation plots and CSV summaries with:
+
+```powershell
+uv run python adaptive_agent/report.py
+```
+
+The report is written to `reports/adaptive_agent/` and includes the cumulative
+adaptation timeline, mutation activity by tool, and the underlying audit table.
+
+The [`manufacturing_stress_adaptive_model_comparison.ipynb`](manufacturing_stress_adaptive_model_comparison.ipynb)
+is a separate controlled comparison of the adaptive agent with the lite and
+advanced models. It uses ordinary cached historical backtests, separate cache
+identities, and a frozen strategy with mutation disabled; the adaptive builder
+defaults to the lite model and accepts an explicit advanced-model opt-in.
+
+The [`manufacturing_stress_protected_evaluation_workbench.ipynb`](manufacturing_stress_protected_evaluation_workbench.ipynb)
+is the limited held-out evaluation surface. It uses
+[`manufacturing_stress_protected_eval.yaml`](specs/manufacturing_stress_protected_eval.yaml)
+with an `EvalTracker` and a five-run budget. Protected evaluation is not used
+for the ordinary lite-versus-advanced comparison.
+
+The companion [`manufacturing_stress_adaptive_agent_workbench.ipynb`](manufacturing_stress_adaptive_agent_workbench.ipynb)
+is a frozen-by-default interface for inspecting the seeded strategy, optionally
+running one adaptive forecast, reviewing mutation audits, and generating the
+same executive-ready reports under `reports/adaptive_agent_workbench/`.
+The window is a historical diagnostic rather than an untouched future holdout.
 
 The additive
 [`manufacturing_stress_hybrid_workbench.ipynb`](manufacturing_stress_hybrid_workbench.ipynb)
 is the interface for the initial hybrid expansion. It defaults to a dry run,
 uses the full 15-feature set and the fixed candidates
-`logistic_c_0_001` and `xgb_50_depth2_lr0_03`, and keeps the numerical anchor
-as the starting point for the agent. Set `RUN_AGENT_CALL = True` explicitly to
+`logistic_c_0_001` and `xgb_50_depth2_lr0_03_minchild3_l2_5`. The numerical
+anchor uses the logistic candidate only; the XGBoost prediction remains an
+optional comparison model rather than part of the anchor. Set `RUN_AGENT_CALL = True` explicitly to
 make one LLM call through the existing ADK/Vector-proxy runner; the bounded
 agent adjustment is used as the forecast probability, with the anchor and
 proposal retained in metadata.
@@ -118,6 +153,27 @@ change existing predictors, agents, runners, or cached artifacts.
 The output prints one mean Brier score per predictor; lower is better. The
 logistic model should be compared against historical frequency, not judged in
 isolation.
+
+### Regime diagnostics and hybrid weights
+
+`manufacturing_stress_workbench_2.ipynb` also reports cutoff-safe conditional
+diagnostics for the fixed forecasts. Each origin is classified independently by
+manufacturing momentum (`expanding`, `slowing`, or `stressed`), financial
+conditions (`supportive` or `restrictive`), and market volatility (`normal` or
+`elevated`). Thresholds use only observations visible at that origin. The
+notebook reports origin and event counts, observed event rates, mean predicted
+probabilities, conditional Brier scores, and probability error by regime.
+
+These regime labels are descriptive slices, not tuning rules or causal claims.
+They do not change model parameters, the deterministic hybrid anchor, or the
+protected evaluation budget.
+
+The notebook also performs an offline hybrid-weight sweep from the saved
+logistic and XGBoost probabilities. Logistic and XGBoost are each run once;
+candidate weights are scored with arithmetic over the same origin rows, so the
+sweep makes no additional model fits, agent calls, or protected-evaluation
+runs. The selected hybrid anchor is now logistic-only; the weight sweep remains
+an exploratory diagnostic.
 
 ### Controlled deterministic parameter sweep
 
