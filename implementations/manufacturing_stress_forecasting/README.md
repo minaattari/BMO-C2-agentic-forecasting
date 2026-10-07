@@ -369,7 +369,24 @@ order with an `OutcomeLedger` (`adaptive_agent/ledger.py`). At each origin the
 prompt includes `resolved_feedback`: the agent's earlier forecasts whose stress
 label had been **published** by that origin, with its Brier score and the
 anchor's. Origins are referred to by date-free ids (`origin-001`), and prompts
-anonymise dates. The strategy tools enforce the learning rules:
+anonymise dates.
+
+Learning happens in a separate **review** call (`adaptive_agent/review.py`)
+rather than in the forecast call. A first lite-model run that asked each
+forecast call to also maintain the strategy made no strategy changes at all
+across 76 origins: the model just forecast. Reviews run every
+`--review-every` origins (default 4, about yearly at the default stride) and
+immediately after any newly published stress outcome. A review sees the
+strategy, the ids of newly resolved origins, and up to 24 resolved forecasts
+with the signals seen at each origin (3- and 6-month IPMAN change, yield-curve
+and credit spreads, VIX, 3-month XLI return), so hypotheses can name signal
+conditions. Its only job is to score open hypotheses, graduate those the tools
+allow, open new ones for recurring misses, and record one observation.
+Forecast calls read the strategy but cannot change it. `--review-every 0`
+restores the single-call design for comparison. Reviews are logged to
+`reviews.jsonl` and summarised in the report.
+
+The strategy tools enforce the learning rules:
 
 - `record_hypothesis_outcome` accepts only an `origin_id` the ledger shows as
   resolved at the current origin, once per hypothesis.
@@ -390,7 +407,7 @@ final learned `strategy/SKILL.md`.
 # No LLM calls: checks the loop and report end to end.
 uv run --directory implementations python -m manufacturing_stress_forecasting.run_adaptive_walk_forward --dry-run
 
-# Lite model, quarterly origins 2006-2024 (76 forecasts).
+# Lite model, quarterly origins 2006-2024 (76 forecasts plus about 25 reviews).
 uv run --directory implementations python -m manufacturing_stress_forecasting.run_adaptive_walk_forward --model lite
 
 # Advanced model; --stride 1 gives monthly origins (228 forecasts, more feedback).
@@ -398,7 +415,8 @@ uv run --directory implementations python -m manufacturing_stress_forecasting.ru
 ```
 
 Use `--fresh` to discard progress and reseed the strategy, `--max-origins N`
-for a short trial, and `--report-only` to rebuild the report. This is still a
+for a short trial, `--review-every 0` for the no-review comparison (pair it
+with `--run-dir`), and `--report-only` to rebuild the report. This is still a
 retrospective study: anonymised dates reduce, but do not remove, the chance
 that the model recognises a historical episode.
 

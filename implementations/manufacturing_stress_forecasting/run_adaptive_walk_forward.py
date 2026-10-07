@@ -3,9 +3,17 @@
 At each origin, in date order, the agent sees the usual cutoff-safe signals,
 the logistic anchor, its persisted strategy, and ``resolved_feedback``: its own
 earlier forecasts whose stress label had been published by that origin, scored
-against the anchor. It may then confirm or refute hypotheses against those
-resolved origins, graduate well-supported ones into calibration corrections,
-and forecast. The final probability stays within +/-0.03 of the anchor.
+against the anchor, and forecasts. The final probability stays within +/-0.03
+of the anchor.
+
+Learning happens in a separate review call (``adaptive_agent/review.py``) run
+every ``--review-every`` origins and whenever a newly published outcome is a
+stress event. The review compares resolved outcomes, and the signals seen at
+those origins, with the strategy, then confirms or refutes hypotheses against
+resolved origins, graduates well-supported ones into calibration corrections,
+and records an observation. Forecast calls read the strategy but cannot change
+it. ``--review-every 0`` disables reviews and instead gives the forecast call
+the mutation tools.
 
 Progress is appended to ``predictions.jsonl`` after every origin, so rerunning
 the same command resumes where it stopped. ``--dry-run`` exercises the full
@@ -40,8 +48,18 @@ from manufacturing_stress_forecasting.adaptive_agent import (
     OutcomeLedger,
     build_manufacturing_adaptive_agent_predictor,
 )
+from manufacturing_stress_forecasting.adaptive_agent.review import build_review_prompt, build_review_runner, run_review
 from manufacturing_stress_forecasting.data import build_manufacturing_stress_service
 from manufacturing_stress_forecasting.evaluation_stats import brier_scores, compare_to_baseline, diebold_mariano
+from manufacturing_stress_forecasting.features import (
+    CREDIT_SPREAD_SERIES_ID,
+    IPMAN_CHANGE_3M_SERIES_ID,
+    IPMAN_CHANGE_6M_SERIES_ID,
+    VIXCLS_SERIES_ID,
+    XLI_RETURN_3M_SERIES_ID,
+    YC_SPREAD_SERIES_ID,
+    build_feature_snapshot,
+)
 from manufacturing_stress_forecasting.hybrid_agent import HybridAgentPredictor, build_numerical_anchor
 
 
@@ -50,6 +68,15 @@ SPEC_PATH = PACKAGE_DIR / "specs" / "manufacturing_stress_smoke.yaml"
 DEFAULT_REPORT_ROOT = PACKAGE_DIR / "reports" / "adaptive_walk_forward"
 MODELS = {"lite": LITE_MODEL, "advanced": ADVANCED_MODEL}
 WARMUP = 60
+# Signals stored per origin so reviews can state hypotheses as signal conditions.
+REVIEW_SIGNAL_IDS = (
+    IPMAN_CHANGE_3M_SERIES_ID,
+    IPMAN_CHANGE_6M_SERIES_ID,
+    YC_SPREAD_SERIES_ID,
+    CREDIT_SPREAD_SERIES_ID,
+    VIXCLS_SERIES_ID,
+    XLI_RETURN_3M_SERIES_ID,
+)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -59,6 +86,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--end", default="2024-12-01", help="Last origin.")
     parser.add_argument("--stride", type=int, default=3, help="Months between origins (3 avoids overlapping targets).")
     parser.add_argument("--max-origins", type=int, default=None, help="Stop after this many new origins.")
+    parser.add_argument(
+        "--review-every",
+        type=int,
+        default=4,
+        help="Run a strategy review every N origins (and after any newly resolved stress event); 0 disables.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Use the anchor as the forecast; no LLM calls.")
     parser.add_argument(
         "--fresh", action="store_true", help="Delete earlier progress for this run and reseed the strategy."
@@ -101,15 +134,24 @@ def run_walk_forward(args: argparse.Namespace, run_dir: Path) -> None:
     done = {str(row["entry"]["origin_id"]) for row in _load_progress(progress_path, ledger)}  # type: ignore[index]
     if done:
         print(f"Resuming: {len(done)} origin(s) already forecast.")
+    reviews_path = run_dir / "reviews.jsonl"
+    reviewed = _load_reviewed(reviews_path)
 
-    predictor = None
+    reviews_enabled = args.review_every > 0 and not args.dry_run
+    predictor = review_runner = None
     if not args.dry_run:
         predictor = HybridAgentPredictor(
             build_manufacturing_adaptive_agent_predictor(
-                strategy_dir=strategy_dir, model=MODELS[args.model], anonymize_dates=True, ledger=ledger
+                strategy_dir=strategy_dir,
+                model=MODELS[args.model],
+                anonymize_dates=True,
+                ledger=ledger,
+                mutation_enabled=not reviews_enabled,
             ),
             predictor_id=f"manufacturing_stress_adaptive_walk_forward_{args.model}",
         )
+    if reviews_enabled:
+        review_runner = build_review_runner(strategy_dir, ledger, model=MODELS[args.model])
     baseline = HistoricalFrequencyPredictor()
     origins = pd.date_range(args.start, args.end, freq="MS")[:: args.stride]
     horizon = pd.DateOffset(months=task.horizons[0])
@@ -127,27 +169,20 @@ def run_walk_forward(args: argparse.Namespace, run_dir: Path) -> None:
         if len(context.get_series(task.target_series_id)) < WARMUP:
             continue
 
+        newly_resolved = ledger.resolved_since(reviewed)
+        if (
+            review_runner is not None
+            and newly_resolved
+            and (index % args.review_every == 0 or any(entry.outcome == 1.0 for entry in newly_resolved))
+        ):
+            reviewed = _review(review_runner, strategy_dir, ledger, reviewed, reviews_path)
+
         anchor = build_numerical_anchor(task, context).probability
         base_rate = baseline.predict(task, context)[0].payload.probability  # type: ignore[union-attr]
         details: dict[str, object] = {"historical_frequency": base_rate}
         probability, status = anchor, "dry_run_anchor"
         if predictor is not None:
-            status = "fallback_anchor"
-            for attempt in range(2):
-                try:
-                    prediction = predictor.predict(task, context)[0]
-                    probability, status = prediction.payload.probability, "agent"  # type: ignore[union-attr]
-                    details.update(
-                        {
-                            key: prediction.metadata.get(key)
-                            for key in ("agent_probability", "validation_status", "rationale", "direction")
-                        }
-                    )
-                    break
-                except Exception as exc:  # noqa: BLE001 - one bad origin must not end a long run
-                    details["error"] = f"{type(exc).__name__}: {exc}"[:500]
-                    if attempt == 0:
-                        time.sleep(2.0)
+            probability, status = _forecast(predictor, task, context, anchor, details)
 
         entry = ledger.record(
             origin_id=origin_id,
@@ -156,6 +191,7 @@ def run_walk_forward(args: argparse.Namespace, run_dir: Path) -> None:
             anchor_probability=anchor,
             probability=probability,
             status=status,
+            signals=_review_signals(origin, context),
         )
         with progress_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps({"entry": entry.as_record(), "details": details}, default=str) + "\n")
@@ -164,6 +200,71 @@ def run_walk_forward(args: argparse.Namespace, run_dir: Path) -> None:
             f"{origin_id} {origin:%Y-%m}: anchor={anchor:.3f} forecast={probability:.3f} "
             f"status={status} resolved_feedback={len(ledger.resolved())}"
         )
+
+
+def _load_reviewed(reviews_path: Path) -> set[str]:
+    """Return the origin ids already covered by the last logged review."""
+    if not reviews_path.exists():
+        return set()
+    lines = [line for line in reviews_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return set(json.loads(lines[-1])["reviewed_origin_ids"]) if lines else set()
+
+
+def _forecast(
+    predictor: HybridAgentPredictor,
+    task: object,
+    context: object,
+    anchor: float,
+    details: dict[str, object],
+) -> tuple[float, str]:
+    """Return the agent forecast, retrying once and falling back to the anchor."""
+    for attempt in range(2):
+        try:
+            prediction = predictor.predict(task, context)[0]  # type: ignore[arg-type]
+            details.update(
+                {
+                    key: prediction.metadata.get(key)
+                    for key in ("agent_probability", "validation_status", "rationale", "direction")
+                }
+            )
+            return prediction.payload.probability, "agent"  # type: ignore[union-attr]
+        except Exception as exc:  # noqa: BLE001 - one bad origin must not end a long run
+            details["error"] = f"{type(exc).__name__}: {exc}"[:500]
+            if attempt == 0:
+                time.sleep(2.0)
+    return anchor, "fallback_anchor"
+
+
+def _review_signals(origin: pd.Timestamp, context: object) -> dict[str, float]:
+    frames = {series_id: context.get_series(series_id) for series_id in REVIEW_SIGNAL_IDS}  # type: ignore[attr-defined]
+    snapshot = build_feature_snapshot(origin, frames, series_ids=REVIEW_SIGNAL_IDS) or {}
+    return {series_id: round(value, 3) for series_id, value in snapshot.items()}
+
+
+def _count_mutations(strategy_dir: Path) -> int:
+    path = strategy_dir / ".history" / "adaptation_audit.jsonl"
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()) if path.exists() else 0
+
+
+def _review(
+    runner: object, strategy_dir: Path, ledger: OutcomeLedger, reviewed: set[str], reviews_path: Path
+) -> set[str]:
+    """Run one strategy review and log it; a failed review never stops the run."""
+    newly = sorted(entry.origin_id for entry in ledger.resolved_since(reviewed))
+    before = _count_mutations(strategy_dir)
+    record: dict[str, object] = {"origin_id": ledger.current_origin_id, "newly_resolved": newly}
+    try:
+        prompt = build_review_prompt(strategy_dir, ledger, reviewed_origin_ids=reviewed)
+        record["reply"] = run_review(runner, prompt)[:1000]  # type: ignore[arg-type]
+    except Exception as exc:  # noqa: BLE001 - one bad review must not end a long run
+        record["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    record["mutations"] = _count_mutations(strategy_dir) - before
+    updated = reviewed | ledger.resolved_origin_ids()
+    record["reviewed_origin_ids"] = sorted(updated)
+    with reviews_path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(record) + "\n")
+    print(f"  review at {ledger.current_origin_id}: {len(newly)} newly resolved, {record['mutations']} mutation(s)")
+    return updated
 
 
 def _load_audit(strategy_dir: Path) -> pd.DataFrame:
@@ -257,6 +358,24 @@ def write_report(run_dir: Path, *, model_label: str) -> Path:
     _write_learning_curve(frame, agent_loss - anchor_loss, audit, run_dir / "figures")
 
     status_counts = frame["status"].value_counts().to_dict()
+    reviews_path = run_dir / "reviews.jsonl"
+    reviews = (
+        pd.DataFrame([json.loads(line) for line in reviews_path.read_text(encoding="utf-8").splitlines() if line])
+        if reviews_path.exists()
+        else pd.DataFrame(columns=["origin_id", "mutations", "reply", "error"])
+    )
+    for column in ("reply", "error"):
+        if column not in reviews:
+            reviews[column] = None
+    review_summary = (
+        f"{len(reviews)} reviews ran; {int(reviews['error'].notna().sum())} failed; "
+        f"{int(reviews['mutations'].sum()) if len(reviews) else 0} strategy mutations came from reviews."
+    )
+    review_table = (
+        reviews[["origin_id", "mutations", "reply"]].tail(8).fillna("").to_markdown(index=False)
+        if len(reviews)
+        else "*(No reviews ran.)*"
+    )
     skill_md = (strategy_dir / "SKILL.md").read_text(encoding="utf-8")
     report = f"""# Manufacturing stress: adaptive agent walk-forward ({model_label})
 
@@ -286,6 +405,10 @@ late segment.
 ![Learning curve](figures/learning_curve.png)
 
 ## Strategy evolution
+
+{review_summary} Most recent reviews:
+
+{review_table}
 
 Durable mutations by tool:
 

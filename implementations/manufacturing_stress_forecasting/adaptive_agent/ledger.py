@@ -10,7 +10,7 @@ the strategy state never carry calendar dates.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 
 import pandas as pd
 
@@ -27,6 +27,7 @@ class LedgerEntry:
     outcome: float | None
     outcome_released_at: pd.Timestamp | None
     status: str = "agent"
+    signals: dict[str, float] = field(default_factory=dict)
 
     def as_record(self) -> dict[str, object]:
         """Return a JSON-friendly row for persistence."""
@@ -81,6 +82,7 @@ class OutcomeLedger:
         anchor_probability: float,
         probability: float,
         status: str = "agent",
+        signals: dict[str, float] | None = None,
     ) -> LedgerEntry:
         """Store a forecast; its outcome stays hidden until published."""
         outcome, released_at = self._labels.get(pd.Timestamp(forecast_date), (None, None))
@@ -93,6 +95,7 @@ class OutcomeLedger:
             outcome=outcome,
             outcome_released_at=released_at,
             status=status,
+            signals=dict(signals or {}),
         )
         self.entries.append(entry)
         return entry
@@ -113,12 +116,17 @@ class OutcomeLedger:
         """Return ids the agent may cite as evidence at the current origin."""
         return {entry.origin_id for entry in self.resolved()}
 
-    def feedback_payload(self, *, recent: int = 12) -> dict[str, object]:
-        """Summarise resolved outcomes for the prompt without calendar dates."""
+    def feedback_payload(self, *, recent: int = 12, include_signals: bool = False) -> dict[str, object]:
+        """Summarise resolved outcomes for the prompt without calendar dates.
+
+        ``include_signals`` adds the signals seen at each past origin, which a
+        review needs to tie misses to conditions it can state as hypotheses.
+        """
         resolved = self.resolved()
         rows = [
             {
                 "origin_id": entry.origin_id,
+                **({"signals_at_origin": entry.signals} if include_signals else {}),
                 "your_probability": round(entry.probability, 4),
                 "anchor_probability": round(entry.anchor_probability, 4),
                 "outcome": int(entry.outcome),  # type: ignore[arg-type]
@@ -143,6 +151,10 @@ class OutcomeLedger:
                 }
             )
         return {"current_origin_id": self.current_origin_id, "summary": summary, "recent_resolved": rows}
+
+    def resolved_since(self, origin_ids: set[str]) -> list[LedgerEntry]:
+        """Return resolved entries not among ``origin_ids`` (e.g. already reviewed)."""
+        return [entry for entry in self.resolved() if entry.origin_id not in origin_ids]
 
 
 __all__ = ["LedgerEntry", "OutcomeLedger"]
