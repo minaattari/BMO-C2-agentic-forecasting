@@ -17,12 +17,16 @@ class ManufacturingStressXGBoostPredictor(ManufacturingStressLogisticPredictor):
         n_estimators: int = 100,
         max_depth: int = 2,
         learning_rate: float = 0.05,
+        min_child_weight: float = 1.0,
+        reg_lambda: float = 1.0,
         min_training_examples: int = 24,
     ) -> None:
         super().__init__(min_training_examples=min_training_examples)
         self._n_estimators = n_estimators
         self._max_depth = max_depth
         self._learning_rate = learning_rate
+        self._min_child_weight = min_child_weight
+        self._reg_lambda = reg_lambda
 
     @property
     def predictor_id(self) -> str:
@@ -47,6 +51,8 @@ class ManufacturingStressXGBoostPredictor(ManufacturingStressLogisticPredictor):
             n_estimators=self._n_estimators,
             max_depth=self._max_depth,
             learning_rate=self._learning_rate,
+            min_child_weight=self._min_child_weight,
+            reg_lambda=self._reg_lambda,
             objective="binary:logistic",
             eval_metric="logloss",
             subsample=0.8,

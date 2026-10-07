@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -29,6 +29,11 @@ STAGE_WINDOWS = {
     "tune": (datetime(2000, 1, 1), datetime(2017, 12, 1)),
     "confirm": (datetime(2018, 1, 1), datetime(2024, 12, 1)),
 }
+TUNING_FOLDS = (
+    ("2000-2005", datetime(2000, 1, 1), datetime(2005, 12, 1)),
+    ("2006-2011", datetime(2006, 1, 1), datetime(2011, 12, 1)),
+    ("2012-2017", datetime(2012, 1, 1), datetime(2017, 12, 1)),
+)
 
 
 @dataclass(frozen=True)
@@ -41,8 +46,20 @@ class Candidate:
 
 CANDIDATES = (
     Candidate(
+        "logistic_c_0_001",
+        lambda: ManufacturingStressLogisticPredictor(regularization_c=0.001),
+    ),
+    Candidate(
+        "logistic_c_0_003",
+        lambda: ManufacturingStressLogisticPredictor(regularization_c=0.003),
+    ),
+    Candidate(
         "logistic_c_0_01",
         lambda: ManufacturingStressLogisticPredictor(regularization_c=0.01),
+    ),
+    Candidate(
+        "logistic_c_0_03",
+        lambda: ManufacturingStressLogisticPredictor(regularization_c=0.03),
     ),
     Candidate(
         "logistic_c_0_1",
@@ -82,6 +99,40 @@ CANDIDATES = (
             n_estimators=100,
             max_depth=2,
             learning_rate=0.05,
+        ),
+    ),
+    Candidate(
+        "xgb_25_depth1_lr0_03",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=25,
+            max_depth=1,
+            learning_rate=0.03,
+        ),
+    ),
+    Candidate(
+        "xgb_50_depth1_lr0_03",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=50,
+            max_depth=1,
+            learning_rate=0.03,
+        ),
+    ),
+    Candidate(
+        "xgb_100_depth2_lr0_02",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=100,
+            max_depth=2,
+            learning_rate=0.02,
+        ),
+    ),
+    Candidate(
+        "xgb_50_depth2_lr0_03_minchild3_l2_5",
+        lambda: ManufacturingStressXGBoostPredictor(
+            n_estimators=50,
+            max_depth=2,
+            learning_rate=0.03,
+            min_child_weight=3.0,
+            reg_lambda=5.0,
         ),
     ),
 )
@@ -197,6 +248,143 @@ def run_candidates(
     return results
 
 
+def build_tuning_fold_specs(base_spec: BacktestSpec, *, stride: int) -> dict[str, BacktestSpec]:
+    """Build chronological validation specs that exactly cover the tuning window."""
+    tuning_spec = build_experiment_spec(base_spec, stage="tune", stride=stride)
+    return {name: tuning_spec.model_copy(update={"start": start, "end": end}) for name, start, end in TUNING_FOLDS}
+
+
+def run_tuning_folds(
+    *,
+    base_spec: BacktestSpec,
+    stride: int,
+    service: DataService,
+) -> dict[str, list[tuple[str, BacktestResult]]]:
+    """Run all tuning candidates independently on each chronological fold."""
+    fold_results = {}
+    for fold_name, spec in build_tuning_fold_specs(base_spec, stride=stride).items():
+        print(f"Tuning fold {fold_name}...")
+        fold_results[fold_name] = run_candidates(predictors_for_stage("tune"), spec=spec, service=service)
+    return fold_results
+
+
+def tuning_summary_tables(
+    fold_results: dict[str, list[tuple[str, BacktestResult]]],
+    *,
+    service: DataService,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Summarize fold and pooled skill plus each scored probability/outcome pair."""
+    if not fold_results:
+        raise ValueError("fold_results must contain at least one tuning fold.")
+
+    first_results = next(iter(fold_results.values()))
+    if not first_results:
+        raise ValueError("Each tuning fold must include the historical-frequency baseline.")
+    task = first_results[0][1].spec.task
+    target = service.get_series(task.target_series_id, as_of=datetime.now(tz=timezone.utc).replace(tzinfo=None))
+    outcomes_by_date = {
+        pd.Timestamp(timestamp): float(value)
+        for timestamp, value in zip(target["timestamp"], target["value"], strict=True)
+    }
+
+    fold_rows = []
+    origin_rows = []
+    pooled_scores: dict[str, list[float]] = {}
+    pooled_skipped: dict[str, int] = {}
+    pooled_events: dict[str, int] = {}
+    expected_names = {name for name, _result in first_results}
+
+    for fold_name, results in fold_results.items():
+        if {name for name, _result in results} != expected_names:
+            raise ValueError(f"Tuning fold {fold_name} has a different candidate set.")
+        validate_comparable_results(results)
+        result_by_name = dict(results)
+        if BASELINE_NAME not in result_by_name:
+            raise ValueError(f"Every tuning fold must include {BASELINE_NAME}.")
+        baseline_brier = result_by_name[BASELINE_NAME].mean_score
+
+        for name, result in results:
+            if result.metric != "brier":
+                raise ValueError(f"Tuning candidate {name} must use the binary Brier metric.")
+            scored_outcomes = []
+            for prediction, score in zip(result.predictions, result.scores, strict=True):
+                forecast_date = pd.Timestamp(prediction.forecast_date)
+                if forecast_date not in outcomes_by_date:
+                    raise ValueError(f"No resolved target value for forecast date {forecast_date.date()}.")
+                outcome = outcomes_by_date[forecast_date]
+                scored_outcomes.append(outcome)
+                origin_rows.append(
+                    {
+                        "candidate": name,
+                        "fold": fold_name,
+                        "as_of": prediction.as_of,
+                        "forecast_date": prediction.forecast_date,
+                        "probability": float(prediction.payload.probability),
+                        "outcome": outcome,
+                        "brier": score,
+                    }
+                )
+
+            fold_rows.append(
+                {
+                    "candidate": name,
+                    "fold": fold_name,
+                    "mean_brier": result.mean_score,
+                    "delta_vs_baseline": result.mean_score - baseline_brier,
+                    "brier_skill": float("nan") if baseline_brier == 0 else 1.0 - result.mean_score / baseline_brier,
+                    "scored": len(result.scores),
+                    "skipped": result.skipped_origins,
+                    "stress_events": int(sum(scored_outcomes)),
+                }
+            )
+            pooled_scores.setdefault(name, []).extend(result.scores)
+            pooled_skipped[name] = pooled_skipped.get(name, 0) + result.skipped_origins
+            pooled_events[name] = pooled_events.get(name, 0) + int(sum(scored_outcomes))
+
+    fold_table = pd.DataFrame(fold_rows)
+    pooled_baseline = sum(pooled_scores[BASELINE_NAME]) / len(pooled_scores[BASELINE_NAME])
+    pooled_rows = []
+    for name, scores in pooled_scores.items():
+        mean_brier = sum(scores) / len(scores)
+        candidate_fold_rows = [row for row in fold_rows if row["candidate"] == name]
+        folds_beating_baseline = sum(row["delta_vs_baseline"] < 0 for row in candidate_fold_rows)
+        event_folds = sum(row["stress_events"] > 0 for row in candidate_fold_rows)
+        event_folds_beating_baseline = sum(
+            row["stress_events"] > 0 and row["delta_vs_baseline"] < 0 for row in candidate_fold_rows
+        )
+        pooled_rows.append(
+            {
+                "candidate": name,
+                "mean_brier": mean_brier,
+                "delta_vs_baseline": mean_brier - pooled_baseline,
+                "brier_skill": float("nan") if pooled_baseline == 0 else 1.0 - mean_brier / pooled_baseline,
+                "scored": len(scores),
+                "skipped": pooled_skipped[name],
+                "stress_events": pooled_events[name],
+                "folds_beating_baseline": folds_beating_baseline,
+                "event_folds": event_folds,
+                "event_folds_beating_baseline": event_folds_beating_baseline,
+            }
+        )
+
+    pooled_table = pd.DataFrame(pooled_rows).sort_values(["mean_brier", "candidate"]).reset_index(drop=True)
+    origin_table = pd.DataFrame(origin_rows).sort_values(["fold", "candidate", "as_of"]).reset_index(drop=True)
+    return fold_table, pooled_table, origin_table
+
+
+def select_tuning_candidate(pooled_table: pd.DataFrame) -> pd.Series | None:
+    """Select the best candidate only when pooled and fold-level skill agree."""
+    eligible = pooled_table[
+        (pooled_table["candidate"] != BASELINE_NAME)
+        & (pooled_table["delta_vs_baseline"] < 0)
+        & (pooled_table["folds_beating_baseline"] >= 2)
+        & (pooled_table["event_folds_beating_baseline"] >= 1)
+    ]
+    if eligible.empty:
+        return None
+    return eligible.sort_values(["mean_brier", "candidate"]).iloc[0]
+
+
 def comparison_table(results: list[tuple[str, BacktestResult]]) -> pd.DataFrame:
     """Summarize Brier score and skill relative to historical frequency."""
     result_by_name = dict(results)
@@ -242,34 +430,48 @@ def main() -> None:
     with SPEC_PATH.open() as file:
         base_spec = BacktestSpec.model_validate(yaml.safe_load(file))
 
-    spec = build_experiment_spec(base_spec, stage=args.stage, stride=args.stride)
-    named_predictors = predictors_for_stage(args.stage, args.candidate)
     service = build_manufacturing_stress_service(stress_threshold_pct=args.stress_threshold_pct)
 
-    print(
-        f"Stage={args.stage}; origins={spec.start.date()} to {spec.end.date()}; "
-        f"stride={spec.stride}; horizon={spec.task.horizons[0]} month(s); "
-        f"stress_threshold_pct={args.stress_threshold_pct}"
-    )
-    results = run_candidates(named_predictors, spec=spec, service=service)
-    table = comparison_table(results)
-    print()
-    _print_table(table)
-
     if args.stage == "tune":
-        best_model = table[table["candidate"] != BASELINE_NAME].iloc[0]
-        candidate_name = str(best_model["candidate"])
-        print(f"\nBest non-baseline tuning candidate: {candidate_name}")
-        if float(best_model["brier_skill"]) <= 0:
-            print("Historical frequency still has the lower tuning-period Brier score.")
-        print("Confirm only this selected candidate with:")
+        spec = build_experiment_spec(base_spec, stage="tune", stride=args.stride)
         print(
-            "uv run --directory implementations python -m "
-            "manufacturing_stress_forecasting.run_parameter_smoke "
-            f"--stage confirm --candidate {candidate_name} --stride {args.stride}"
+            f"Stage=tune; origins={spec.start.date()} to {spec.end.date()}; "
+            f"stride={spec.stride}; horizon={spec.task.horizons[0]} month(s); "
+            f"stress_threshold_pct={args.stress_threshold_pct}"
         )
+        fold_results = run_tuning_folds(base_spec=base_spec, stride=args.stride, service=service)
+        fold_table, table, _origin_table = tuning_summary_tables(fold_results, service=service)
+        print("\nFold-level Brier scores:")
+        _print_table(fold_table)
+        print("\nPooled tuning Brier scores:")
+        _print_table(table)
+
+        best_model = select_tuning_candidate(table)
+        if best_model is None:
+            print("\nNo candidate beat historical frequency overall and in at least two of three folds.")
+        else:
+            candidate_name = str(best_model["candidate"])
+            print(f"\nStable tuning candidate: {candidate_name}")
+            print("Confirm only this selected candidate with:")
+            print(
+                "uv run --directory implementations python -m "
+                "manufacturing_stress_forecasting.run_parameter_smoke "
+                f"--stage confirm --candidate {candidate_name} --stride {args.stride}"
+            )
     else:
-        print("\nConfirmation stage completed without evaluating the other candidates.")
+        spec = build_experiment_spec(base_spec, stage="confirm", stride=args.stride)
+        named_predictors = predictors_for_stage(args.stage, args.candidate)
+        print(
+            f"Stage=confirm; origins={spec.start.date()} to {spec.end.date()}; "
+            f"stride={spec.stride}; horizon={spec.task.horizons[0]} month(s); "
+            f"stress_threshold_pct={args.stress_threshold_pct}"
+        )
+        results = run_candidates(named_predictors, spec=spec, service=service)
+        table = comparison_table(results)
+        print()
+        _print_table(table)
+        print("\nHistorical diagnostic completed without evaluating the other candidates.")
+        print("The 2018–2024 window has already been inspected; do not tune against it.")
 
 
 if __name__ == "__main__":

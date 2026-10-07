@@ -57,9 +57,92 @@ data, run the deterministic smoke test, and explicitly opt in to the cached
 LLMP backtest without using the terminal.
 
 The dedicated
-[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
-runs the controlled logistic/XGBoost parameter sweep one cell at a time without
-requiring the CLI.
+[`manufacturing_stress_parameter_sweep_workbench_2.ipynb`](manufacturing_stress_parameter_sweep_workbench_2.ipynb)
+runs the controlled logistic/XGBoost tuning workflow across chronological
+validation folds without requiring the CLI. The original parameter-sweep
+workbench is unchanged.
+
+The [`manufacturing_stress_workbench_2.ipynb`](manufacturing_stress_workbench_2.ipynb)
+is a self-contained comparison notebook for the fixed 2018–2024 smoke window.
+It compares historical frequency, logistic regression with `C=0.001`, XGBoost
+with 50 trees, depth 2, learning rate 0.03, `min_child_weight=3`, and
+`reg_lambda=5`, plus the deterministic hybrid anchor based on logistic only. It reports mean Brier
+score, Brier skill, per-origin outcomes, and calibration diagnostics. Analyst,
+hybrid-agent, and adaptive-agent evaluations are disabled by default and
+require an explicit opt-in because they may make LLM calls. Set
+`RUN_HYBRID_AGENT = True` to compare the stateless bounded hybrid as
+`hybrid_agent_adjusted`. Set `RUN_ADAPTIVE_AGENT = True` to compare the
+stateful manufacturing adaptive agent as `adaptive_agent`; its strategy state
+is persisted under `adaptive_agent/skills/manufacturing-strategy/` and is
+governed by typed mutation tools. Both agent rows retain the anchor, proposed
+probability, applied adjustment, rationale, and evidence in metadata.
+The stateless hybrid and adaptive agent use distinct predictor/cache IDs, so
+the adaptive backtest cannot silently reuse the hybrid result.
+When Langfuse credentials are configured, adaptive runs emit tagged traces and
+each durable strategy mutation is also appended to the redacted
+`adaptive_agent/skills/manufacturing-strategy/.history/adaptation_audit.jsonl`
+audit. Generate the executive-ready adaptation plots and CSV summaries with:
+
+```powershell
+uv run python adaptive_agent/report.py
+```
+
+The report is written to `reports/adaptive_agent/` and includes the cumulative
+adaptation timeline, mutation activity by tool, and the underlying audit table.
+
+The [`manufacturing_stress_adaptive_model_comparison.ipynb`](manufacturing_stress_adaptive_model_comparison.ipynb)
+is a separate controlled comparison of the adaptive agent with the lite and
+advanced models. It uses ordinary cached historical backtests, separate cache
+identities, and a frozen strategy with mutation disabled; the adaptive builder
+defaults to the lite model and accepts an explicit advanced-model opt-in. Its
+advanced path uses a 4096-token response cap (the lite path remains at 512),
+leaving room for the advanced model's internal reasoning and complete
+structured forecast. A supplied `AgentConfig` keeps its own token cap. Its
+configuration cell lets you choose `BACKTEST_STRIDE_MONTHS = 3` (the faster
+default, 28 origins) or `1` (monthly origins, 84 origins); this overrides the
+smoke spec's stride only for that notebook run. Both settings keep the
+three-month horizon, so monthly forecast targets overlap. The comparison is
+read-only and presents the two models' probabilities, risk directions,
+concise rationales, supporting evidence, and countervailing evidence side by
+side for each origin; no binary decision threshold is applied.
+The paired monthly result is summarized in the executive-ready
+[`reports/adaptive_compare/`](reports/adaptive_compare/) package, which includes
+the report, figures, exact plot-source CSVs, and a manifest. Rebuild it from
+saved backtest artifacts without making LLM calls with:
+
+```bash
+uv run python implementations/manufacturing_stress_forecasting/reports/adaptive_compare/build_report.py
+```
+
+The [`manufacturing_stress_protected_evaluation_workbench.ipynb`](manufacturing_stress_protected_evaluation_workbench.ipynb)
+is the limited held-out evaluation surface. It uses
+[`manufacturing_stress_protected_eval.yaml`](specs/manufacturing_stress_protected_eval.yaml)
+with an `EvalTracker` and a five-run budget. Protected evaluation is not used
+for the ordinary lite-versus-advanced comparison.
+
+The companion [`manufacturing_stress_adaptive_agent_workbench.ipynb`](manufacturing_stress_adaptive_agent_workbench.ipynb)
+is a frozen-by-default interface for inspecting the seeded strategy, optionally
+running one adaptive forecast, reviewing mutation audits, and generating the
+same executive-ready reports under `reports/adaptive_agent_workbench/`.
+The adaptive agent uses the hybrid agent's complete structured-output
+instructions and explicitly submits all required response fields through
+`set_model_response`; the window is a historical diagnostic rather than an
+untouched future holdout.
+
+The additive
+[`manufacturing_stress_hybrid_workbench.ipynb`](manufacturing_stress_hybrid_workbench.ipynb)
+is the interface for the initial hybrid expansion. It defaults to a dry run,
+uses the full 15-feature set and the fixed candidates
+`logistic_c_0_001` and `xgb_50_depth2_lr0_03_minchild3_l2_5`. The numerical
+anchor uses the logistic candidate only; the XGBoost prediction remains an
+optional comparison model rather than part of the anchor. Set `RUN_AGENT_CALL = True` explicitly to
+make one LLM call through the existing ADK/Vector-proxy runner; the bounded
+agent adjustment is used as the forecast probability, with the anchor and
+proposal retained in metadata.
+The structured response includes a rationale limited to 40 words, the main
+supporting and countervailing evidence, and a direction (`up`, `down`, or
+`neutral`). These fields are retained with the anchor, agent proposal, applied
+adjustment, and adjusted forecast probability in the notebook output.
 
 From the repository root, put a personal FRED key in `.env` or export it:
 
@@ -79,18 +162,57 @@ Run the deterministic small backtest:
 uv run --directory implementations python -m manufacturing_stress_forecasting.run_smoke
 ```
 
+Run the hybrid dry-run smoke interface:
+
+```bash
+uv run --directory implementations \
+  python -m manufacturing_stress_forecasting.smoke_hybrid_agent
+```
+
+Use `--run-agent` only when the Vector-proxy environment is configured and an
+explicit LLM call is intended. The hybrid smoke path is additive and does not
+change existing predictors, agents, runners, or cached artifacts.
+
 The output prints one mean Brier score per predictor; lower is better. The
 logistic model should be compared against historical frequency, not judged in
 isolation.
 
+### Regime diagnostics and hybrid weights
+
+`manufacturing_stress_workbench_2.ipynb` also reports cutoff-safe conditional
+diagnostics for the fixed forecasts. Each origin is classified independently by
+manufacturing momentum (`expanding`, `slowing`, or `stressed`), financial
+conditions (`supportive` or `restrictive`), and market volatility (`normal` or
+`elevated`). Thresholds use only observations visible at that origin. The
+notebook reports origin and event counts, observed event rates, mean predicted
+probabilities, conditional Brier scores, and probability error by regime.
+
+These regime labels are descriptive slices, not tuning rules or causal claims.
+They do not change model parameters, the deterministic hybrid anchor, or the
+protected evaluation budget.
+
+The notebook also performs an offline hybrid-weight sweep from the saved
+logistic and XGBoost probabilities. Logistic and XGBoost are each run once;
+candidate weights are scored with arithmetic over the same origin rows, so the
+sweep makes no additional model fits, agent calls, or protected-evaluation
+runs. The selected hybrid anchor is now logistic-only; the weight sweep remains
+an exploratory diagnostic.
+
 ### Controlled deterministic parameter sweep
 
-`run_parameter_smoke.py` separates model selection from final confirmation:
+`run_parameter_smoke.py` compares candidates across three chronological tuning
+folds within 2000–2017:
 
-- `tune` compares three logistic regularization values and four small XGBoost
-  configurations over 2000–2017.
-- `confirm` evaluates only the selected tuning winner over the fixed 2018–2024
-  window.
+- `tune` compares six logistic regularization values and four small XGBoost
+  configurations against historical frequency in 2000–2005, 2006–2011, and
+  2012–2017 folds. Training remains expanding and cutoff-scoped at each origin.
+- A candidate is suggested only if it beats historical frequency on pooled
+  Brier score, in at least two folds, and in an event-bearing fold. Fold tables
+  show scores, skipped origins, and resolved stress-event counts; per-origin
+  probabilities and outcomes are available in the notebook.
+- `confirm` evaluates only one selected candidate over the fixed 2018–2024
+  window. This window has already been inspected and is a historical diagnostic,
+  not an untouched holdout for selecting new parameters.
 - `stride=3` evaluates every third month and is the default. `stride=1` is a
   slower every-month diagnostic. Use the same stride for both stages.
 
@@ -101,12 +223,16 @@ uv run --directory implementations \
   python -m manufacturing_stress_forecasting.run_parameter_smoke
 ```
 
-The table reports mean Brier score, the gap from historical frequency, and
-Brier skill. Lower Brier is better, a negative `delta_vs_baseline` is better,
 and positive Brier skill means the candidate beat historical frequency.
+The tuning output reports fold-level and pooled mean Brier score, the gap from
+historical frequency, Brier skill, and event counts. Lower Brier is better, a
+negative `delta_vs_baseline` is better, and positive Brier skill means the
+candidate beat historical frequency. If events appear in fewer than two folds,
+any suggested candidate is explicitly marked provisional.
 
-The tuning stage prints the best non-baseline candidate and its exact
-confirmation command. Confirm only that selected candidate, for example:
+The tuning stage prints a stability-qualified candidate when one meets the
+selection rule. The following command reproduces the historical diagnostic; it
+does not create a fresh holdout result:
 
 ```bash
 uv run --directory implementations \
@@ -122,8 +248,8 @@ uv run --directory implementations \
   --stage tune --stride 1
 ```
 
-To run the same workflow in Jupyter, open
-[`manufacturing_stress_parameter_sweep_workbench.ipynb`](manufacturing_stress_parameter_sweep_workbench.ipynb)
+To run the fold-based workflow in Jupyter, open
+[`manufacturing_stress_parameter_sweep_workbench_2.ipynb`](manufacturing_stress_parameter_sweep_workbench_2.ipynb)
 and run it from top to bottom. Its controls are:
 
 ```python
@@ -132,16 +258,20 @@ CANDIDATE = None        # set to the printed winner for confirmation
 BACKTEST_STRIDE = 3     # use the same value for tune and confirm
 REFRESH_INPUT_DATA = False
 RUN_SWEEP = True
+SHOW_ORIGIN_DETAILS = False
 ```
 
-After tuning, copy the printed winning candidate into `CANDIDATE`, change
-`STAGE` to `"confirm"`, and rerun the notebook. Do not choose a candidate after
-examining the confirmation window.
+The notebook reports fold and pooled tables. Set `SHOW_ORIGIN_DETAILS = True`
+to inspect each scored probability and resolved label. A candidate can pass the
+rule while remaining provisional when stress events appear in only one fold.
+Because the 2018–2024 window has already been inspected, do not retune from its
+results; a clean next confirmation requires future or prospectively recorded
+outcomes.
 
 The script and notebook read the local input-data caches but do not use
-prediction-result caches or make LLM calls. Keeping selection and confirmation
-separate reduces the risk of choosing parameters that merely fit the
-confirmation period.
+prediction-result caches or make LLM calls. Keeping tuning within 2000–2017
+and reporting regime-level stability reduces the risk of choosing parameters
+that fit only one part of the development period.
 
 Run the token-limited LLMP backtest explicitly:
 
