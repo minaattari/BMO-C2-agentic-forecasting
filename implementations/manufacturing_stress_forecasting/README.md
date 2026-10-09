@@ -386,6 +386,11 @@ Forecast calls read the strategy but cannot change it. `--review-every 0`
 restores the single-call design for comparison. Reviews are logged to
 `reviews.jsonl` and summarised in the report.
 
+See [`adaptive_agent/README.md`](adaptive_agent/README.md) for a concise
+explanation of the outcome-grounding controls and reproducible commands that
+validate the ledger, review process, saved mutation evidence, and statistical
+evaluation.
+
 The strategy tools enforce the learning rules:
 
 - `record_hypothesis_outcome` accepts only an `origin_id` the ledger shows as
